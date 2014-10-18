@@ -60,21 +60,18 @@ int main(){
 	struct Rqst request;
 	struct Resp response;
 
-	struct Rqst requestb;
-	struct Resp responseb;
+	//check for correct number of arguments
+ 	if (argc < 4) {
+  	     fprintf (stderr, "missing parameter\n");
+  	     exit(1);
+	}
 	
 	//initialise request
-	request.op = 0;
-	request.passphrase = "mypassphrase";
-	request.filename = "myfile";
+	request.op = atoi(argv[1]);
+	request.passphrase = argv[2];
+	request.filename = argv[3];
 
-	requestb.op = 0;
-	requestb.passphrase = "mypassphraseb";
-	requestb.filename = "myfileb";
-
-
-	rc = do_gpg(&request, &response);
-
+	rc = do_gpg(atoi(argv[1]), argv[2], argv[3]);
 	printf("Error code %i\n",rc);
 	return 0;
 } //end main
