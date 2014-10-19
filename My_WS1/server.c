@@ -19,11 +19,55 @@ void error(char *msg)
     exit(1);
 }
 
+
+int do_gpg(struct Rqst request){
+	char gpg_file[35];
+	char command[151];
+	int plainflag;
+	int cipherflag;
+
+	//check if plaintext exists
+	if (access(request.filename,F_OK) != -1){
+		plainflag = 2;
+	} else plainflag = 0;
+
+
+	//check if ciphertext exists
+	memset(gpg_file, '\0', sizeof(gpg_file));
+	strcpy(gpg_file, request.filename);
+	strcat(gpg_file, ".gpg");
+
+ 	if ( access(gpg_file,F_OK) != -1){
+		cipherflag = 4;
+	} else cipherflag = 0;	
+
+
+	//sort out which case we are in
+	switch (cipherflag + plainflag + request.op){
+		case (0 + 2 + 0):
+		   	// prepare for encrypt
+	   		snprintf(command, sizeof(command), "echo %s | gpg --batch -c --passphrase-fd 0 %s \n" , request.passphrase, request.filename);
+			break;
+		case (4 + 0 + 1):
+			// prepare for decrypt
+ 		   	snprintf(command, sizeof(command), "echo %s | gpg --batch -d --passphrase-fd 0 --output %s %s.gpg\n" , request.passphrase, request.filename, request.filename);
+			break;
+		default: return (cipherflag + plainflag + request.op); //error so don't proceed
+	}
+
+	// go ahead and execute command
+
+	return system(command); // should be zero but return value just in case
+} //end do_gpg
+
+
+
 int main(int argc, char *argv[])
 {
 	socklen_t clilen;
 	int sockfd, newsockfd, portno;
 	char buffer[BUFFERLENGTH];
+	int rc;
 	struct sockaddr_in serv_addr, cli_addr;
 	struct Rqst request;
 	struct Resp response;
@@ -68,12 +112,31 @@ int main(int argc, char *argv[])
       	n = read (newsockfd, &request, sizeof(request));
        if (n < 0) 
 	 error ("ERROR reading from socket");
-       printf ("Filename received: %s\n",request.filename);
 
+//now do the actual work
+      rc = do_gpg(request);
+	printf("Error code %i\n",rc);
 
+//construct the response
+	switch (rc){
+		case 0:
+		case 4:
+			strcpy(response.msg, "Encrypt failed - Plaintext is missing"); 
+			break;
+		case 1:
+		case 3:
+			strcpy(response.msg, "Decrypt failed - Ciphertext is missing"); 
+			break;
+		case 6:
+			strcpy(response.msg, "Encrypt Failed - Ciphertext already exists"); 
+			break;
+		case 7:
+			strcpy(response.msg, "Decrypt Failed - Plaintext already exists"); 
+			break;
+			
+		default: strcpy(response.msg, "Operation completed successfully"); 
+	}
 
-
-strcpy(response.msg, "I have processed your request");
 
 
        /* send the reply back */
