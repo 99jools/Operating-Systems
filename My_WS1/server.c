@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
        bzero (buffer, BUFFERLENGTH);
        
        /* read the data */
-      	n = read (sockfd, &request, sizeof(request));
+      	n = read (newsockfd, &request, sizeof(request));
        if (n < 0) 
 	 error ("ERROR reading from socket");
        printf ("Filename received: %s\n",request.filename);
@@ -77,7 +77,7 @@ strcpy(response.msg, "I have processed your request");
 
 
        /* send the reply back */
-         n = write (sockfd, &response, sizeof(response));
+         n = write (newsockfd, &response, sizeof(response));
        if (n < 0) 
 	 error ("ERROR writing to socket");
        
