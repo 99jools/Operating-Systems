@@ -6,8 +6,9 @@
 #include <netinet/in.h>
 #include <ctype.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include <unistd.h>
+#include "comms.h"
 
 #define BUFFERLENGTH 256
 
@@ -20,10 +21,13 @@ void error(char *msg)
 
 int main(int argc, char *argv[])
 {
-     socklen_t clilen;
-     int sockfd, newsockfd, portno;
-     char buffer[BUFFERLENGTH];
-     struct sockaddr_in serv_addr, cli_addr;
+	socklen_t clilen;
+	int sockfd, newsockfd, portno;
+	char buffer[BUFFERLENGTH];
+	struct sockaddr_in serv_addr, cli_addr;
+	struct Rqst request;
+	struct Resp response;
+
      int n;
      if (argc < 2) {
          fprintf (stderr,"ERROR, no port provided\n");
@@ -61,13 +65,19 @@ int main(int argc, char *argv[])
        bzero (buffer, BUFFERLENGTH);
        
        /* read the data */
-       n = read (newsockfd, buffer, BUFFERLENGTH -1);
+      	n = read (sockfd, &request, sizeof(request));
        if (n < 0) 
 	 error ("ERROR reading from socket");
-       printf ("Here is the message: %s\n",buffer);
+       printf ("Filename received: %s\n",request.filename);
+
+
+
+
+strcpy(response.msg, "I have processed your request");
+
 
        /* send the reply back */
-       n = write (newsockfd,"I got your message",18);
+         n = write (sockfd, &response, sizeof(response));
        if (n < 0) 
 	 error ("ERROR writing to socket");
        

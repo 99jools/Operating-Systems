@@ -11,7 +11,7 @@ void error(char *msg)
     exit(0);
 }
 
-int do_gpg(int op, char passphrase[], char filename[]){
+int do_gpg(struct Rqst request){
 	int rc;
 	char gpg_file[35];
 	char command[151];
@@ -19,14 +19,14 @@ int do_gpg(int op, char passphrase[], char filename[]){
 	int cipherflag;
 
 	//check if plaintext exists
-	if (access(filename,F_OK) != -1){
+	if (access(request.filename,F_OK) != -1){
 		plainflag = 2;
 	} else plainflag = 0;
 
 
 	//check if ciphertext exists
 	memset(gpg_file, '\0', sizeof(gpg_file));
-	strcpy(gpg_file, filename);
+	strcpy(gpg_file, request.filename);
 	strcat(gpg_file, ".gpg");
 
  	if ( access(gpg_file,F_OK) != -1){
@@ -35,16 +35,16 @@ int do_gpg(int op, char passphrase[], char filename[]){
 
 
 	//sort out which case we are in
-	switch (cipherflag + plainflag + op){
+	switch (cipherflag + plainflag + request.op){
 		case (0 + 2 + 0):
 		   	// prepare for encrypt
-	   		snprintf(command, sizeof(command), "echo %s | gpg --batch -c --passphrase-fd 0 %s \n" , passphrase, filename);
+	   		snprintf(command, sizeof(command), "echo %s | gpg --batch -c --passphrase-fd 0 %s \n" , request.passphrase, request.filename);
 			break;
 		case (4 + 0 + 1):
 			// prepare for decrypt
- 		   	snprintf(command, sizeof(command), "echo %s | gpg --batch -d --passphrase-fd 0 --output %s %s.gpg\n" , passphrase, filename, filename);
+ 		   	snprintf(command, sizeof(command), "echo %s | gpg --batch -d --passphrase-fd 0 --output %s %s.gpg\n" , request.passphrase, request.filename, request.filename);
 			break;
-		default: return (cipherflag + plainflag + op); //error so don't proceed
+		default: return (cipherflag + plainflag + request.op); //error so don't proceed
 	}
 
 	// go ahead and execute command
@@ -57,24 +57,25 @@ int do_gpg(int op, char passphrase[], char filename[]){
 
 int main(){
 	int rc;
-	struct Rqst request;
-	struct Resp response;
+	struct Rqst reqa;
+	struct Rqst reqb;
 
-	struct Rqst requestb;
-	struct Resp responseb;
 	
 	//initialise request
-	request.op = 0;
-	request.passphrase = "mypassphrase";
-	request.filename = "myfile";
+	reqa.op = 0;
+	strcpy(reqa.passphrase, "mypassphrase");
+	strcpy(reqa.filename, "myfile");
 
-	requestb.op = 0;
-	requestb.passphrase = "mypassphraseb";
-	requestb.filename = "myfileb";
+	reqb.op = 0;
+	strcpy(reqa.passphrase, "mypassphraseb");
+	strcpy(reqa.filename, "myfile");
 
 
-	rc = do_gpg(&request, &response);
-
+	rc = do_gpg(reqa);
 	printf("Error code %i\n",rc);
+
+	rc = do_gpg(reqb);
+	printf("Error code %i\n",rc);
+
 	return 0;
 } //end main

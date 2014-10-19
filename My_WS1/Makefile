@@ -5,7 +5,7 @@ CFLAGS = -Wall -Werror -pthread -D _GNU_SOURCE
 GCC = gcc $(CFLAGS)
 
 
-APPS = server serverThreaded client host_lookup test1
+APPS = server serverThreaded client host_lookup test
 
 all: $(APPS)
 
@@ -21,8 +21,8 @@ client: client.c
 host_lookup: host_lookup.c
 	$(GCC) -o host_lookup host_lookup.c
 
-test1:  test1.c
-	$(GCC) -o test1 test1.c
+test:  test.c
+	$(GCC) -o test test.c
 
 clean:
 	rm -f $(APPS) 
