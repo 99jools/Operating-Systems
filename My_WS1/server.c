@@ -114,8 +114,14 @@ int main(int argc, char *argv[])
        if (n < 0) 
 	 error ("ERROR reading from socket");
 
-
 printf("%i %s %s\n", request.op, request.passphrase, request.filename);
+
+
+
+
+
+
+
 
 //now do the actual work
       rc = do_gpg(request);
