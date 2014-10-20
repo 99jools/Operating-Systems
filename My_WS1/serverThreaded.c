@@ -6,93 +6,164 @@
 #include <netinet/in.h>
 #include <ctype.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include <unistd.h>
 #include <pthread.h>
 #include "comms.h"
 
-#define BUFFERLENGTH 256
+#define CONCURRENT 10
+
+int active_filenames = 0;  // the number of threads currently performing encryption or decryption on a file
+char **filename_ptr[CONCURRENT] = {NULL};
+int count = 0;
+pthread_mutex_t mut; /* the lock */
+
 
 /* displays error messages from system calls */
 void error(char *msg)
 {
     perror(msg);
     exit(1);
-}
+} //end error
 
-
-int active_filenames = 0;  // the number of threads currently performing encryption or decryption on a file
-char *filename_ptr[30] = {NULL};
-pthread_mutex_t mut; /* the lock */
-
-
-
-/* decide if we are able to proceed with work on that filename */
-int *proceed (void *args) {
-	int empty =0;
+/* function to decide if we are able to proceed with work on that filename */
+int proceed (struct Rqst request) {
+	int i;
+char *tmpPtr;
   	pthread_mutex_lock (&mut); /* lock exclusive access to array filename_ptr */
-	for (i=0, i<current+1, i++){
+
+	for (i=0; i<count; ++i){
+printf("%s\n", "am in loop in proceed");
 		//check if filename is in active list
-		if (strcmp(request.filename, *filename_ptr[i]) {
+		if (strcmp(request.filename, *filename_ptr[i])) {
 			//filename found - we will not proceed
 			pthread_mutex_unlock (&mut); /* release the lock */
-			strcpy(request.msg,"File currently in use - operation terminated");
 			return 99;
 		}  
-	if (NULL==filename_ptr[i]) empty = i;  
-		/*just want to keep track of an empty slot - any one will do.  
-			This is a terrible method but saves implementing linked list at this point */
 	}
 
-	// filename not found in currently active list - add to list	
-	filename_ptr[empty] = &request.filename;
+	// filename not found in currently active list - add to list 	
+	++count;  //increase count
+
+printf("%s\n", request.filename);
+tmpPtr = request.filename;
+
+	filename_ptr[count] = tmpPtr;
 	pthread_mutex_unlock (&mut); /* release the lock */
-	return empty;  //returns position where we just entered our filename
-}
+	return count;  //returns position where we just entered our filename
+
+printf("%s\n", "am leaving proceed");
+} //end proceed
+
+/*function that does encryption work */
+int do_gpg(struct Rqst request){
+	char gpg_file[35];
+	char command[151];
+	int plainflag;
+	int cipherflag;
 
 
+	//check if plaintext exists
+	if (access(request.filename,F_OK) != -1){
+		plainflag = 2;
+	} else plainflag = 0;
 
-/* the procedure called for each request */
+
+	//check if ciphertext exists
+	memset(gpg_file, '\0', sizeof(gpg_file));
+	strcpy(gpg_file, request.filename);
+	strcat(gpg_file, ".gpg");
+
+ 	if ( access(gpg_file,F_OK) != -1){
+		cipherflag = 4;
+	} else cipherflag = 0;	
+	printf("%i  %i   %i\n", request.op, plainflag, cipherflag);
+
+	//sort out which case we are in
+	switch (cipherflag + plainflag + request.op){
+		case (0 + 2 + 0):
+		   	// prepare for encrypt
+	   		snprintf(command, sizeof(command), "echo %s | gpg --batch -c --passphrase-fd 0 %s \n" , 
+				request.passphrase, request.filename);
+			break;
+		case (4 + 0 + 1):
+			// prepare for decrypt
+ 		   	snprintf(command, sizeof(command), "echo %s | gpg --batch -d --passphrase-fd 0 --output %s %s.gpg\n" ,
+				 request.passphrase, request.filename, request.filename);
+			break;
+		default: return (cipherflag + plainflag + request.op + 16); //error so don't proceed - 16 added to show it is an error code
+	}
+
+	// go ahead and execute command
+
+	return system(command); // should be zero but return value just in case
+} //end do_gpg
+
+/* function called for each request */
 void *processRequest (void *args) {
   	int *newsockfd = (int *) args;
 	struct Rqst request;
 	struct Resp response;
-	int i;
   	int n;
+	int rc;
   	int tmp;
   
-	/* read the data */
-    n = read (newsockfd, &request, sizeof(request));
+
+	/* read the data into request*/
+    	n = read (*newsockfd, &request, sizeof(request));
 	if (n < 0) 
 	 error ("ERROR reading from socket");
 
-	printf("%i %s %s\n", request.op, request.passphrase, request.filename);
-
 	//decide if we can operate on that filename 
-	tmp = proceed();
-	if (99>tmp{
+	tmp = proceed(request);
+	if (99 > tmp) {
 		//we have exclusive use of that filename - do work
-    	rc = do_gpg(request);
+    		rc = do_gpg(request);
 		printf("Error code %i\n",rc);
 
-		//release our hold on filename
-		pthread_mutex_lock (&mut); /* lock exclusive access to array filename_ptr */
-		filename_ptr[tmp] = NULL;	
-		pthread_mutex_unlock (&mut); /* release the lock */
+		//construct the response
+		switch (rc){
+			case 16:
+			case 20:
+				strcpy(response.msg, "Encrypt failed - Plaintext is missing"); 
+				break;
+			case 17:
+			case 19:
+				strcpy(response.msg, "Decrypt failed - Ciphertext is missing"); 
+				break;
+			case 22:
+				strcpy(response.msg, "Encrypt Failed - Ciphertext already exists"); 
+				break;
+			case 23:
+				strcpy(response.msg, "Decrypt Failed - Plaintext already exists"); 
+				break;
+
+			case 0:
+				strcpy(response.msg, "Operation completed successfully"); 
+				break;
+		
+			default: strcpy(response.msg, "GPG error - consult server log for more information"); 
+		}
+
+		//update array to remove filename and release our hold on it
+		pthread_mutex_lock (&mut); 				/* lock exclusive access to array filename_ptr */
+		filename_ptr[tmp] = filename_ptr[count];	/* remove entry by overwriting with last entry */
+		--count; 								/* decrease count to move end marker */
+		pthread_mutex_unlock (&mut); 			/* release the lock */
+	} else {
+		strcpy(response.msg,"File currently in use - operation terminated");
 	}
 
+    /* send the reply back */
+	n = write (*newsockfd, &response, sizeof(response));
+	if (n < 0) 
+		error ("ERROR writing to socket");
 
-  n = sprintf (buffer, "I got you message, the  value of isExecuted is %d\n", isExecuted);
-  /* send the reply back */
-  n = write (*newsockfd, buffer, BUFFERLENGTH);
-  if (n < 0) 
-    error ("ERROR writing to socket");
-       
-  close (*newsockfd); /* important to avoid memory leak */  
-  free (newsockfd);
+	close (*newsockfd); /* important to avoid memory leak */  
+	free (newsockfd);
 
-  pthread_exit (NULL);
-}
+  	pthread_exit (NULL);
+} //end processRequest
 
 
 
@@ -100,11 +171,8 @@ int main(int argc, char *argv[])
 {
      socklen_t clilen;
      int sockfd, portno;
-     char buffer[BUFFERLENGTH];
      struct sockaddr_in serv_addr, cli_addr;
      int result;
-
-
 
      if (argc < 2) {
          fprintf (stderr,"ERROR, no port provided\n");
@@ -150,7 +218,7 @@ int main(int argc, char *argv[])
 			  &clilen);
        if (*newsockfd < 0) 
 	 error ("ERROR on accept");
-       bzero (buffer, BUFFERLENGTH);
+
 
      /* create separate thread for processing */
      if (pthread_attr_init (&pthread_attr)) {
