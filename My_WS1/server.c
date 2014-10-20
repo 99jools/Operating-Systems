@@ -26,6 +26,7 @@ int do_gpg(struct Rqst request){
 	int plainflag;
 	int cipherflag;
 
+
 	//check if plaintext exists
 	if (access(request.filename,F_OK) != -1){
 		plainflag = 2;
@@ -40,7 +41,7 @@ int do_gpg(struct Rqst request){
  	if ( access(gpg_file,F_OK) != -1){
 		cipherflag = 4;
 	} else cipherflag = 0;	
-
+printf("%i  %i   %i\n", request.op, plainflag, cipherflag);
 
 	//sort out which case we are in
 	switch (cipherflag + plainflag + request.op){
@@ -52,7 +53,7 @@ int do_gpg(struct Rqst request){
 			// prepare for decrypt
  		   	snprintf(command, sizeof(command), "echo %s | gpg --batch -d --passphrase-fd 0 --output %s %s.gpg\n" , request.passphrase, request.filename, request.filename);
 			break;
-		default: return (cipherflag + plainflag + request.op); //error so don't proceed
+		default: return (cipherflag + plainflag + request.op + 16); //error so don't proceed - 16 added to show it is an error code
 	}
 
 	// go ahead and execute command
@@ -119,18 +120,18 @@ int main(int argc, char *argv[])
 
 //construct the response
 	switch (rc){
-		case 0:
-		case 4:
+		case 16:
+		case 20:
 			strcpy(response.msg, "Encrypt failed - Plaintext is missing"); 
 			break;
-		case 1:
-		case 3:
+		case 17:
+		case 19:
 			strcpy(response.msg, "Decrypt failed - Ciphertext is missing"); 
 			break;
-		case 6:
+		case 22:
 			strcpy(response.msg, "Encrypt Failed - Ciphertext already exists"); 
 			break;
-		case 7:
+		case 23:
 			strcpy(response.msg, "Decrypt Failed - Plaintext already exists"); 
 			break;
 			
