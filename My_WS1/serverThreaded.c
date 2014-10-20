@@ -9,6 +9,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <pthread.h>
+#include "comms.h"
 
 #define BUFFERLENGTH 256
 
@@ -20,30 +21,67 @@ void error(char *msg)
 }
 
 
-int isExecuted = 0;
-
+int active_filenames = 0;  // the number of threads currently performing encryption or decryption on a file
+char *filename_ptr[30] = {NULL};
 pthread_mutex_t mut; /* the lock */
+
+
+
+/* decide if we are able to proceed with work on that filename */
+int *proceed (void *args) {
+	int empty =0;
+  	pthread_mutex_lock (&mut); /* lock exclusive access to array filename_ptr */
+	for (i=0, i<current+1, i++){
+		//check if filename is in active list
+		if (strcmp(request.filename, *filename_ptr[i]) {
+			//filename found - we will not proceed
+			pthread_mutex_unlock (&mut); /* release the lock */
+			strcpy(request.msg,"File currently in use - operation terminated");
+			return 99;
+		}  
+	if (NULL==filename_ptr[i]) empty = i;  
+		/*just want to keep track of an empty slot - any one will do.  
+			This is a terrible method but saves implementing linked list at this point */
+	}
+
+	// filename not found in currently active list - add to list	
+	filename_ptr[empty] = &request.filename;
+	pthread_mutex_unlock (&mut); /* release the lock */
+	return empty;  //returns position where we just entered our filename
+}
+
+
 
 /* the procedure called for each request */
 void *processRequest (void *args) {
-  int *newsockfd = (int *) args;
-  char buffer[BUFFERLENGTH];
-  int n;
-  int tmp;
+  	int *newsockfd = (int *) args;
+	struct Rqst request;
+	struct Resp response;
+	int i;
+  	int n;
+  	int tmp;
   
-  n = read (*newsockfd, buffer, BUFFERLENGTH -1);
-  if (n < 0) 
-    error ("ERROR reading from socket");
+	/* read the data */
+    n = read (newsockfd, &request, sizeof(request));
+	if (n < 0) 
+	 error ("ERROR reading from socket");
 
-  printf ("Here is the message: %s\n",buffer);
-  pthread_mutex_lock (&mut); /* lock exclusive access to variable isExecuted */
-  tmp = isExecuted;
-  printf ("Waiting for confirmation: Please input an integer\n");
-  scanf ("%d", &n); /* not to be done in real programs: don't go to sleep while holding a lock! Done here to demonstrate the mutual exclusion problem. */
-  printf ("Read value %d\n", n);
+	printf("%i %s %s\n", request.op, request.passphrase, request.filename);
 
-  isExecuted = tmp +1;
-  pthread_mutex_unlock (&mut); /* release the lock */
+	//decide if we can operate on that filename 
+	tmp = proceed();
+	if (99>tmp{
+		//we have exclusive use of that filename - do work
+    	rc = do_gpg(request);
+		printf("Error code %i\n",rc);
+
+		//release our hold on filename
+		pthread_mutex_lock (&mut); /* lock exclusive access to array filename_ptr */
+		filename_ptr[tmp] = NULL;	
+		pthread_mutex_unlock (&mut); /* release the lock */
+	}
+
+
   n = sprintf (buffer, "I got you message, the  value of isExecuted is %d\n", isExecuted);
   /* send the reply back */
   n = write (*newsockfd, buffer, BUFFERLENGTH);
