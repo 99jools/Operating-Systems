@@ -26,12 +26,30 @@ int main(int argc, char *argv[])
     struct hostent *server;
 	struct Rqst request;
 	struct Resp response;
-
 //    char buffer[BUFFERLENGTH];
+
+
     if (argc < 5) {
-       fprintf (stderr, "usage %s --encrypt|--decrypt hostname port passphrase filename\n", argv[0]);
+       fprintf (stderr, "usage %s --encrypt|--decrypt hostname port filename\n", argv[0]);
        exit(1); 
-    }
+    };
+
+
+ /* get passphrase 
+    printf ("Please enter the passphrase: ");
+    bzero (buffer, BUFFERLENGTH);
+    fgets (buffer, BUFFERLENGTH, stdin); */
+
+char *password = getpass("Password: ");
+
+	/* create request */
+	strcpy(request.passphrase, password);
+	strcpy(request.filename, argv[4]);
+	if (0==strcmp(argv[1], "--encrypt")) 
+		request.op = 0;
+	else 	if (0==strcmp(argv[1], "--decrypt")) 
+				request.op = 1;
+			else error("Invalid operation requested");
 
     /* create socket */
     portno = atoi (argv[3]);
@@ -56,14 +74,7 @@ int main(int argc, char *argv[])
     if (connect (sockfd, (struct sockaddr *) &serv_addr, sizeof (serv_addr)) < 0) 
         error ("ERROR connecting");
 
-	/* create request */
-	strcpy(request.passphrase, argv[4]);
-	strcpy(request.filename, argv[5]);
-	if (0==strcmp(argv[1], "--encrypt")) 
-		request.op = 0;
-	else 	if (0==strcmp(argv[1], "--decrypt")) 
-				request.op = 1;
-			else error("Invalid operation requested");
+
     
 	/* send message */
     n = write (sockfd, &request, sizeof(request));

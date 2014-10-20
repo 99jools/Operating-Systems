@@ -114,6 +114,9 @@ int main(int argc, char *argv[])
        if (n < 0) 
 	 error ("ERROR reading from socket");
 
+
+printf("%i %s %s\n", request.op, request.passphrase, request.filename);
+
 //now do the actual work
       rc = do_gpg(request);
 	printf("Error code %i\n",rc);
@@ -134,8 +137,12 @@ int main(int argc, char *argv[])
 		case 23:
 			strcpy(response.msg, "Decrypt Failed - Plaintext already exists"); 
 			break;
+
+		case 0:
+			strcpy(response.msg, "Operation completed successfully"); 
+			break;
 			
-		default: strcpy(response.msg, "Operation completed successfully"); 
+		default: strcpy(response.msg, "GPG error - consult server log for more information"); 
 	}
 
 
