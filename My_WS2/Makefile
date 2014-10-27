@@ -1,19 +1,28 @@
 KERNELDIR=/lib/modules/`uname -r`/build
 #ARCH=i386
 #KERNELDIR=/usr/src/kernels/`uname -r`-i686
+CFLAGS = -Wall -Werror -pthread -D _GNU_SOURCE
+GCC = gcc $(CFLAGS)
 
-MODULES = helloWorld.ko kernelWrite.ko kernelRead.ko firewallExtension.ko readInodes.ko
+MODULES = firewallExtension.ko 
 
-obj-m += helloWorld.o kernelWrite.o kernelRead.o firewallExtension.o readInodes.o
+obj-m += firewallExtension.o 
 
 all:
 	make -C  $(KERNELDIR) M=$(PWD) modules
 
+client: client.c
+	$(GCC) -o client client.c
+
 clean:
 	make -C $(KERNELDIR) M=$(PWD) clean
+	rm -f client
 
 install:	
 	make -C $(KERNELDIR) M=$(PWD) modules_install
 
 quickInstall:
 	cp $(MODULES) /lib/modules/`uname -r`/extra
+
+
+
