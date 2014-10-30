@@ -14,7 +14,7 @@
 #include <linux/slab.h>
 #include <asm/uaccess.h>
 #include <linux/list.h>
-#include "entry.h"
+#include "kernel_comms.h"
  
 
 MODULE_AUTHOR ("Julie Sewards <jrs300@student.bham.ac.uk>");
@@ -24,6 +24,7 @@ MODULE_LICENSE("GPL");
 #define BUFFERLENGTH 256
 #define ADD_ENTRY 'A'
 #define SHOW_TABLE 'S'
+#define NEW_LIST 'N'
 
 #define PROC_ENTRY_FILENAME "kernelReadWrite"
 
@@ -36,26 +37,28 @@ MODULE_LICENSE("GPL");
 
 	static struct proc_dir_entry *Our_Proc_File;
 
-	struct lineList {
-	  char *line;
-	  struct lineList *next;
-	}; /* the list-structure for keeping the data in the kernel */
+	struct rule_listitem {
+		int portno;
+		char* pprog_filename;
+		struct rule_listItem* nextInList;	
+	}; /* structure for a single item in rules list */
 
-	struct lineList *kernelList = NULL; /* the global list of words */
+	struct rule_listitem* pheadOfList = NULL; /* pointer to the head of the list */
 
 /********************************************************************************/
-/* lineList - adds line from user space to the list kept in kernel space		*/
+/* add_entry - adds line from user space to the list kept in kernel space		*/
 /********************************************************************************/
-struct lineList *add_entry (struct lineList *lineList, char *line) {
+struct rule_listitem* add_entry (struct rule_listitem* pHead, struct ruleops* pruleToAdd) {
 
-  struct lineList *newEntry;
+  struct rule_listitem* pnewEntry; //defines a pointer for the new list item
+
   /* allocate memory for new list element */
-  newEntry = kmalloc (sizeof (struct lineList), GFP_KERNEL);
-  if (!newEntry) {
+  pnewEntry = kmalloc (sizeof (struct rule_listitem), GFP_KERNEL);
+  if (!pnewEntry) {
     return NULL;
   }
 
-  newEntry->line = line;
+  newEntry->portno = pruleToAdd.
 
   /* protect list access via semaphore */
   down_write (&list_sem);
@@ -70,32 +73,58 @@ struct lineList *add_entry (struct lineList *lineList, char *line) {
 
 
 /********************************************************************************/
+/* clear_list - deletes all elements from current list and frees memory			*/
+/********************************************************************************/
+void clear_list () {
+
+
+
+
+
+} //end clear_list
+
+/********************************************************************************/
 /* show_table - displays the kernel table - uses printk for simplicity			*/
 /********************************************************************************/
-void show_table (struct lineList *lineList) {
+int show_table (int count) {
 
-	struct lineList *tmp;
+	struct rule_listitem* pcurrent_item;
 
 	down_read (&list_sem); /* lock for reading */
-	tmp = lineList;
+	pcurrent_item
 	while (tmp) {
 		printk (KERN_INFO "kernelWrite:The next entry is %s\n", tmp->line);
 		tmp = tmp->next;
 	}
 	up_read (&list_sem); /* unlock reading */
-
+	return count;
 } //end show_table
 
 /********************************************************************************/
 /* kernelWrite - reads data from the proc-buffer and writes it into the kernel	*/
 /********************************************************************************/
 
-ssize_t kernelWrite (struct file *file, const char __user *buffer, size_t count, loff_t *offset) {
+ssize_t kernelWrite (struct file *pfile, const char __user *puserbuffer, size_t count, loff_t *ppoffset) {
 
-	char *kernelBuffer; /* the kernel buffer */
-	struct lineList *tmp;
+	struct ruleops* pruleToKernel = (struct ruleops*) puserbuffer;  
+	struct ruleops 	kernelRule;   
 
-	printk (KERN_INFO "kernelWrite entered\n");
+	if (sizeof(struct ruleops) != count ) {
+		//we have a problem!
+		return -EFAULT;
+	} 
+
+	/* copy rule from user space to kernel space */
+  	if (copy_from_user (kernelRule, puserbuffer, sizeof(kernelRule))) { 
+    	return -EFAULT;
+  	}	
+	printk (KERN_INFO "in kernelWrite: op cod is %c\n",kernelRule.op);	
+
+	/* work out what is required based on op code */
+
+
+
+
 	kernelBuffer = kmalloc (BUFFERLENGTH, GFP_KERNEL); /* allocate memory */
    
 	if (!kernelBuffer) {
@@ -108,32 +137,21 @@ ssize_t kernelWrite (struct file *file, const char __user *buffer, size_t count,
 		return -EFAULT;
 	}
   
-  	/* copy data from user space */
-  	if (copy_from_user (kernelBuffer, buffer, count)) { 
-    	kfree (kernelBuffer);
-    	return -EFAULT;
-  	}
       
-	kernelBuffer[BUFFERLENGTH -1]  ='\0'; /* safety measure: ensure string termination */
-	printk (KERN_INFO "kernelWrite: Having read %s\n", kernelBuffer);
+	kernelRule.prog_filename[sizeof(kernelRule.prog_filename)-1] = '\0'; /* safety measure: ensure string termination */
 
-	switch (kernelBuffer[0]) {
+	switch (kernelRule.op) {
 	case ADD_ENTRY:
-		tmp = add_entry (kernelList, &(kernelBuffer[1]));
-		if (!tmp) {
-			kfree (kernelBuffer);
-			return -EFAULT;
-		} else {
-			kernelList = tmp;
-		}
-		break;
+		return  (add_entry(&kernelRule, count);
 	case SHOW_TABLE:
-		show_table (kernelList);
-		break;
+		return show_table (count);
+	case NEW_LIST:
+		clear_list();
+		return  (add_entry(&kernelRule, count);
 	default: 
 		printk (KERN_INFO "kernelWrite: Illegal command \n");
+		return -EFAULT;
 	}
-  	return count;
 } //end kernelWRite
 
 

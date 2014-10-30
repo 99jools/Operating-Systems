@@ -53,7 +53,7 @@ int addrules (char* p_inFilename) {
 	const char delim[2] = " ";
 	
 	p_inputFile = fopen (p_inFilename, "r");	/* open the input file for reading */	
-	procFileFd = open (MYPROCFILE, O_WRONLY); /* system call to open the proc-file for writing */
+	procFileFd = open (MYPROCFILE, O_WRONLY); 	/* system call to open the proc-file for writing */
   
 	if (!p_inputFile || (procFileFd == -1)) {
 		fprintf (stderr, "Opening failed!  procFileFd = %i\n", procFileFd);
@@ -67,13 +67,22 @@ int addrules (char* p_inFilename) {
 
 		//extract portno
 		ruleToKernel.portno = atoi(strtok(line, delim));
-printf("%i\n", ruleToKernel.portno);
-		//extract filename
 
-		strcpy(ruleToKernel.prog_filename, strtok(NULL, delim));
-printf("filename is %s\n", ruleToKernel.prog_filename);   
-		
-		write (procFileFd, &ruleToKernel, sizeof(ruleToKernel) ); /* write rule to kernel */
+		//extract filename
+		strncpy(ruleToKernel.prog_filename, strtok(NULL, delim),256);
+
+		//make sure this has a terminator
+		ruleToKernel.prog_filename[256] = '\0';
+
+//need to deal with problems if there are errors in input file
+
+ 		
+if (		write (procFileFd, &ruleToKernel, sizeof(ruleToKernel) ) != sizeof(ruleToKernel) ); /* write rule to kernel */
+
+
+
+
+
 
 		free (line); 
 		line = NULL;
