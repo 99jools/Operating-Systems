@@ -5,13 +5,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
-#include "entry.h"
+#include "kernel_comms.h"
 
 #define  BUFFERSIZE 10
-#define  MYPROCFILE "/proc/kernel
-
-
-
+#define  MYPROCFILE "/proc/kernelReadWrite"
 
 /* displays error messages from system calls */
 void error(char *msg)
@@ -24,42 +21,20 @@ void error(char *msg)
 /* listrules - instructs the kernel to list the currently loaded rules 			*/ 
 /********************************************************************************/
 int listrules () {
-  
-	int procFileFd;
-	struct entry_t buffer[BUFFERSIZE];
-	int count = 0;
-	int currentlyRead = 0;
-	int i;
+	
+	struct ruleops ruleToKernel;
+  	int procFileFd;
 
-	procFileFd = open (MYPROCFILE, O_RDONLY);
+	procFileFd = open (MYPROCFILE, O_WRONLY); /* system call to open the proc-file for writing */
   
 	if (procFileFd == -1) {
-		fprintf (stderr, "Opening failed!\n");
+		fprintf (stderr, "Opening failed!  procFileFd = %i\n", procFileFd);
 		exit (1);
 	}
 
-	while (count < BUFFERSIZE * sizeof (struct entry_t)) {
-		/* if (lseek (procFileFd, count, SEEK_SET) == -1) { */
-		/*   fprintf (stderr, "Seek failed!\n"); */
-		/*   exit (1); */
-		/* }  */
-		currentlyRead = read (procFileFd, buffer + count, BUFFERSIZE * sizeof (struct entry_t) - count);
-		if (currentlyRead < 0) {
-			fprintf (stderr, "Reading failed! \n");
-			exit (1);
-		}
-		count = count + currentlyRead;
-		if (currentlyRead == 0) { 
-			/* EOF encountered */
-			break;
-		}
-	}
-	printf ("Read buffer of size %d\n", count);
-	for (i = 0; i * sizeof (struct entry_t) < count; i++) {
-		printf ("Next field1 element is %d\n", buffer[i].field1);
-		printf ("Next field2 element is %d\n", buffer[i].field2);
-	}
-	close (procFileFd);
+	ruleToKernel.op = 'L';
+printf("%c\n",ruleToKernel.op);
+	
 	exit (0);
 
 }
@@ -68,31 +43,42 @@ int listrules () {
 /* addrules - reads a file and passes its content line by line to the kernel 	 */
 /*********************************************************************************/
 int addrules (char* p_inFilename) {
-  	printf("%s\n", "addrules entered");
+	
+	struct ruleops ruleToKernel;
   	FILE *p_inputFile;
   	int procFileFd;
+
   	size_t len;
   	char* line = NULL;
-	char  writeLine[256];
-
-  p_inputFile = fopen (p_inFilename, "r");	/* open the input file for reading */
-
-  procFileFd = open (MYPROCFILE, O_WRONLY); /* system call to open the proc-file for writing */
+	const char delim[2] = " ";
+	
+	p_inputFile = fopen (p_inFilename, "r");	/* open the input file for reading */	
+	procFileFd = open (MYPROCFILE, O_WRONLY); /* system call to open the proc-file for writing */
   
-  if (!p_inputFile || (procFileFd == -1)) {
-    fprintf (stderr, "Opening failed!  procFileFd = %i\n", procFileFd);
-    exit (1);
-  }
+	if (!p_inputFile || (procFileFd == -1)) {
+		fprintf (stderr, "Opening failed!  procFileFd = %i\n", procFileFd);
+		exit (1);
+	}
 
-  while (getline (&line, &len, p_inputFile) != -1) {
-	strcpy(writeLine, "A");
-	strcat(writeLine, line);
-printf  ("%s\n", writeLine);
-    write (procFileFd, writeLine, len); /* write line to kernel */
-    free (line); 
-    line = NULL;
+	ruleToKernel.op = 'N';
 
-  }
+	/* read the input file containing the rules and write structure to kernel - one write per rule */
+	while (getline (&line, &len, p_inputFile) != -1) {
+
+		//extract portno
+		ruleToKernel.portno = atoi(strtok(line, delim));
+printf("%i\n", ruleToKernel.portno);
+		//extract filename
+
+		strcpy(ruleToKernel.prog_filename, strtok(NULL, delim));
+printf("filename is %s\n", ruleToKernel.prog_filename);   
+		
+		write (procFileFd, &ruleToKernel, sizeof(ruleToKernel) ); /* write rule to kernel */
+
+		free (line); 
+		line = NULL;
+		ruleToKernel.op = 'A';
+	}
   
   close (procFileFd); /* make sure data is properly written */
   fclose (p_inputFile);

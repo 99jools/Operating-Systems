@@ -164,7 +164,6 @@ int procfs_close(struct inode *inode, struct file *file)
 //this stricture refers to kernelWrite so hasto be defined 
 	const struct file_operations File_Ops_4_Our_Proc_File = {
 		.owner 	= THIS_MODULE,
-		.read 	= kernelRead,
 		.write 	= kernelWrite,
 		.open 	= procfs_open,
 		.release = procfs_close,
