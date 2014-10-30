@@ -4,10 +4,12 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string.h>
 #include "entry.h"
 
 #define  BUFFERSIZE 10
-#define  MYPROCFILE "/proc/jrs1"
+#define  MYPROCFILE "/proc/kernel
+
 
 
 
@@ -18,7 +20,9 @@ void error(char *msg)
     exit(0);
 }
 
-/************************************************************************/
+/********************************************************************************/
+/* listrules - instructs the kernel to list the currently loaded rules 			*/ 
+/********************************************************************************/
 int listrules () {
   
 	int procFileFd;
@@ -61,15 +65,18 @@ int listrules () {
 }
 
 /*********************************************************************************/
-/* Reads a file and passes its content line by line to the kernel 		 */
+/* addrules - reads a file and passes its content line by line to the kernel 	 */
+/*********************************************************************************/
 int addrules (char* p_inFilename) {
-  
-  FILE *p_inputFile;
-  int procFileFd;
-  size_t len;
-  char* line = NULL;
+  	printf("%s\n", "addrules entered");
+  	FILE *p_inputFile;
+  	int procFileFd;
+  	size_t len;
+  	char* line = NULL;
+	char  writeLine[256];
 
   p_inputFile = fopen (p_inFilename, "r");	/* open the input file for reading */
+
   procFileFd = open (MYPROCFILE, O_WRONLY); /* system call to open the proc-file for writing */
   
   if (!p_inputFile || (procFileFd == -1)) {
@@ -78,9 +85,13 @@ int addrules (char* p_inFilename) {
   }
 
   while (getline (&line, &len, p_inputFile) != -1) {
-    write (procFileFd, line, len); /* write line to kernel */
-    free (line);
+	strcpy(writeLine, "A");
+	strcat(writeLine, line);
+printf  ("%s\n", writeLine);
+    write (procFileFd, writeLine, len); /* write line to kernel */
+    free (line); 
     line = NULL;
+
   }
   
   close (procFileFd); /* make sure data is properly written */
@@ -90,11 +101,6 @@ int addrules (char* p_inFilename) {
 
 }
   
-
-
-/*********************************************************************/
-
-/*********************************************************************/
 
 /*********************************************************************/
 int main (int argc, char **argv) {
