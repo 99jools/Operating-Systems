@@ -72,6 +72,21 @@ struct rule_listitem* add_entry (struct rule_listitem* pHead, struct ruleops* pr
 } //end add_entry
 
 
+
+
+	kernelBuffer = kmalloc (BUFFERLENGTH, GFP_KERNEL); /* allocate memory */
+   
+	if (!kernelBuffer) {
+		return -ENOMEM;
+	}
+
+
+	if (count > BUFFERLENGTH) { /* make sure we don't get buffer overflow */
+		kfree (kernelBuffer);
+		return -EFAULT;
+	}
+
+
 /********************************************************************************/
 /* clear_list - deletes all elements from current list and frees memory			*/
 /********************************************************************************/
@@ -91,10 +106,11 @@ int show_table (int count) {
 	struct rule_listitem* pcurrent_item;
 
 	down_read (&list_sem); /* lock for reading */
-	pcurrent_item
-	while (tmp) {
-		printk (KERN_INFO "kernelWrite:The next entry is %s\n", tmp->line);
-		tmp = tmp->next;
+
+	pcurrent_item = pheadOfList;
+	while (pcurrent_item) {
+		printk (KERN_INFO "kernelWrite:The next entry is %s\n", pcurrent_item->prog_filename);
+		pcurrent_item = pcurrent_item->nextInList;
 	}
 	up_read (&list_sem); /* unlock reading */
 	return count;
@@ -122,22 +138,7 @@ ssize_t kernelWrite (struct file *pfile, const char __user *puserbuffer, size_t 
 
 	/* work out what is required based on op code */
 
-
-
-
-	kernelBuffer = kmalloc (BUFFERLENGTH, GFP_KERNEL); /* allocate memory */
-   
-	if (!kernelBuffer) {
-		return -ENOMEM;
-	}
-
-
-	if (count > BUFFERLENGTH) { /* make sure we don't get buffer overflow */
-		kfree (kernelBuffer);
-		return -EFAULT;
-	}
-  
-      
+    
 	kernelRule.prog_filename[sizeof(kernelRule.prog_filename)-1] = '\0'; /* safety measure: ensure string termination */
 
 	switch (kernelRule.op) {
