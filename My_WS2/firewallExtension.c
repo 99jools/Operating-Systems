@@ -48,7 +48,7 @@ MODULE_LICENSE("GPL");
 /********************************************************************************/
 /* add_entry - adds line from user space to the list kept in kernel space		*/
 /********************************************************************************/
-struct rule_listitem* add_entry (struct rule_listitem* pHead, struct ruleops* pruleToAdd) {
+int add_entry (struct ruleops* pruleToAdd, int count) {
 
   struct rule_listitem* pnewEntry; //defines a pointer for the new list item
 

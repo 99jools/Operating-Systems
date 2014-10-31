@@ -15,7 +15,7 @@ client: client.c
 
 clean:
 	make -C $(KERNELDIR) M=$(PWD) clean
-	$(RM) -f client.o
+	$(RM) -f client.o *~
 
 install:	
 	make -C $(KERNELDIR) M=$(PWD) modules_install
