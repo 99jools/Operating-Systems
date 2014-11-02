@@ -3,11 +3,10 @@
 #define KERNEL_COMMS_H
 
 
-struct ruleops {
+struct rule {
 	char op;
 	int  portno;
-	char prog_filename[257];
-	int  prog_inode; 
+	char str_program[257];
 };
 
 

@@ -23,7 +23,7 @@ MODULE_LICENSE("GPL");
 
 #define BUFFERLENGTH 256
 #define ADD_ENTRY 'A'
-#define SHOW_TABLE 'S'
+#define SHOW_TABLE 'L'
 #define NEW_LIST 'N'
 
 #define PROC_ENTRY_FILENAME "kernelReadWrite"
@@ -37,64 +37,68 @@ MODULE_LICENSE("GPL");
 
 	static struct proc_dir_entry *Our_Proc_File;
 
-	struct rule_listitem {
+	struct listitem {
 		int portno;
-		char* pprog_filename;
-		struct rule_listItem* nextInList;	
+		char str_progpath[257];
+		struct listitem* ptr_nextInList;	
 	}; /* structure for a single item in rules list */
 
-	struct rule_listitem* pheadOfList = NULL; /* pointer to the head of the list */
+	struct listitem* ptr_headOfList = NULL; /* pointer to the head of the list */
 
 /********************************************************************************/
 /* add_entry - adds line from user space to the list kept in kernel space		*/
 /********************************************************************************/
-int add_entry (struct ruleops* pruleToAdd, int count) {
-
-  struct rule_listitem* pnewEntry; //defines a pointer for the new list item
+int add_entry (struct rule* ptr_ruleToAdd, int count) {
+	struct listitem* ptr_newitem;	
 
   /* allocate memory for new list element */
-  pnewEntry = kmalloc (sizeof (struct rule_listitem), GFP_KERNEL);
-  if (!pnewEntry) {
-    return NULL;
-  }
 
-  newEntry->portno = pruleToAdd.
+	ptr_newitem = (struct listitem*) kmalloc (sizeof (struct listitem), GFP_KERNEL);
+	if (!ptr_newitem) {
+		return -ENOMEM; // can't add an element if no memory
+	}
 
-  /* protect list access via semaphore */
-  down_write (&list_sem);
-  newEntry->next = lineList;
-  lineList = newEntry;
-  up_write (&list_sem);
+  	/* prepare list item */
+	ptr_newitem->portno = ptr_ruleToAdd->portno;
+	strcpy(ptr_newitem->str_progpath,ptr_ruleToAdd->str_program);
 
-  /* return new list */
-  return lineList;
+  	/* protect list access via semaphore */
+  	down_write (&list_sem);
+
+	//add to head of list
+	ptr_newitem->ptr_nextInList = ptr_headOfList;
+	ptr_headOfList = ptr_newitem;
+
+	// update semaphore
+  	up_write (&list_sem);
+
+	return count;
 
 } //end add_entry
 
 
 
 
-	kernelBuffer = kmalloc (BUFFERLENGTH, GFP_KERNEL); /* allocate memory */
-   
-	if (!kernelBuffer) {
-		return -ENOMEM;
-	}
-
-
-	if (count > BUFFERLENGTH) { /* make sure we don't get buffer overflow */
-		kfree (kernelBuffer);
-		return -EFAULT;
-	}
-
-
 /********************************************************************************/
 /* clear_list - deletes all elements from current list and frees memory			*/
 /********************************************************************************/
-void clear_list () {
+void clear_list (void) {
+	struct listitem* ptr_temp;	
 
+  	/* lock list for writing */
+  	down_write (&list_sem);
 
+	while (NULL != ptr_headOfList) {
+		printk (KERN_INFO "Removing portno %i progpath %s from list\n", ptr_headOfList->portno,ptr_headOfList->str_progpath );
+		ptr_temp = ptr_headOfList->ptr_nextInList;  //temporarily store pointer
+		kfree(ptr_headOfList);
+		ptr_headOfList = ptr_temp;		//head of list now points to next item
+	}
 
+	//release write lock
+  	up_write (&list_sem);
 
+	printk (KERN_INFO "List freed\n" );
 
 } //end clear_list
 
@@ -103,16 +107,24 @@ void clear_list () {
 /********************************************************************************/
 int show_table (int count) {
 
-	struct rule_listitem* pcurrent_item;
+	struct listitem* ptr_currentitem;
 
-	down_read (&list_sem); /* lock for reading */
+	/* set semaphore for reading */
+	down_read (&list_sem); 
 
-	pcurrent_item = pheadOfList;
-	while (pcurrent_item) {
-		printk (KERN_INFO "kernelWrite:The next entry is %s\n", pcurrent_item->prog_filename);
-		pcurrent_item = pcurrent_item->nextInList;
+	ptr_currentitem = ptr_headOfList;
+	while (ptr_currentitem) {
+
+		//print the current item in the list
+		printk (KERN_INFO "kernelWrite:The next entry is  portno %i  program  %s\n", ptr_currentitem->portno, ptr_currentitem->str_progpath);
+
+		//update the pointer to point to the next item
+		ptr_currentitem = ptr_currentitem->ptr_nextInList; 
+
 	}
+
 	up_read (&list_sem); /* unlock reading */
+
 	return count;
 } //end show_table
 
@@ -120,39 +132,37 @@ int show_table (int count) {
 /* kernelWrite - reads data from the proc-buffer and writes it into the kernel	*/
 /********************************************************************************/
 
-ssize_t kernelWrite (struct file *pfile, const char __user *puserbuffer, size_t count, loff_t *ppoffset) {
+ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, size_t count, loff_t *ppoffset) {
 
-	struct ruleops* pruleToKernel = (struct ruleops*) puserbuffer;  
-	struct ruleops 	kernelRule;   
+	struct rule 	kernelRule;   
 
-	if (sizeof(struct ruleops) != count ) {
+	if (sizeof(struct rule) != count ) {
 		//we have a problem!
 		return -EFAULT;
 	} 
 
-	/* copy rule from user space to kernel space */
-  	if (copy_from_user (kernelRule, puserbuffer, sizeof(kernelRule))) { 
+	/* copy rule from user space to kernel space  */
+  	if (copy_from_user (&kernelRule, ptr_userbuffer, sizeof(kernelRule))) { 
     	return -EFAULT;
   	}	
-	printk (KERN_INFO "in kernelWrite: op cod is %c\n",kernelRule.op);	
 
 	/* work out what is required based on op code */
-
-    
-	kernelRule.prog_filename[sizeof(kernelRule.prog_filename)-1] = '\0'; /* safety measure: ensure string termination */
+  
+	kernelRule.str_program[sizeof(kernelRule.str_program)-1] = '\0'; /* safety measure: ensure string termination */
 
 	switch (kernelRule.op) {
 	case ADD_ENTRY:
-		return  (add_entry(&kernelRule, count);
+		return  (add_entry(&kernelRule, count));
 	case SHOW_TABLE:
 		return show_table (count);
 	case NEW_LIST:
 		clear_list();
-		return  (add_entry(&kernelRule, count);
+		return  (add_entry(&kernelRule, count));
 	default: 
-		printk (KERN_INFO "kernelWrite: Illegal command \n");
+		printk (KERN_INFO "kernelWrite: Illegal command %c \n", kernelRule.op);
 		return -EFAULT;
-	}
+	} //end switch
+
 } //end kernelWRite
 
 
@@ -196,15 +206,15 @@ int init_module(void) {
     Our_Proc_File = proc_create_data (PROC_ENTRY_FILENAME, 0644, NULL, &File_Ops_4_Our_Proc_File, NULL);
     
     /* check if the /proc file was created successfuly */
-    if (Our_Proc_File == NULL){
+    	if (Our_Proc_File == NULL){
 		printk(KERN_ALERT "Error: Could not initialize /proc/%s\n",
 		PROC_ENTRY_FILENAME);
 		return -ENOMEM;
     }
     
-    printk(KERN_INFO "/proc/%s created\n", PROC_ENTRY_FILENAME);
+	printk(KERN_INFO "/proc/%s created\n", PROC_ENTRY_FILENAME);
 	printk(KERN_INFO "Firewall extensions module loaded\n");
-    return 0;	/* success - a non 0 return means init_module failed; module can't be loaded. */
+    	return 0;	/* success - a non 0 return means init_module failed; module can't be loaded. */
 }
 
 /********************************************************************************/
@@ -212,19 +222,12 @@ int init_module(void) {
 /********************************************************************************/
 void cleanup_module(void) {
 
-  struct lineList *tmp;
-
 	remove_proc_entry (PROC_ENTRY_FILENAME, NULL);  /* now, no further module calls possible */
 	printk(KERN_INFO "Firewall extensions module unloaded\n");
   	printk(KERN_INFO "/proc/%s removed\n", PROC_ENTRY_FILENAME);  
 
   	/* free the list */
-	while (kernelList) {
-		tmp = kernelList->next;
-		kfree (kernelList->line);
-		kfree (kernelList);
-		kernelList = tmp;
-	}
+	clear_list();
   
   	printk(KERN_INFO "kernelWrite:Proc module unloaded.\n");
 

@@ -17,12 +17,13 @@ void error(char *msg)
     exit(0);
 }
 
+
 /********************************************************************************/
-/* listrules - instructs the kernel to list the currently loaded rules 			*/ 
+/* listrules - instructs the kernel to list the currently loaded rules 		*/ 
 /********************************************************************************/
 int listrules () {
 	
-	struct ruleops ruleToKernel;
+	struct rule ruleToKernel;
   	int procFileFd;
 
 	procFileFd = open (MYPROCFILE, O_WRONLY); /* system call to open the proc-file for writing */
@@ -33,7 +34,12 @@ int listrules () {
 	}
 
 	ruleToKernel.op = 'L';
-printf("%c\n",ruleToKernel.op);
+ 	/* write rule to kernel - return value equals number of bytes writen
+	(if negative, this indicates an error */	
+	if (write (procFileFd, &ruleToKernel, sizeof(ruleToKernel) ) != sizeof(ruleToKernel) ){
+		fprintf (stderr, "Error writing to kernel  procFileFd = %i\n", procFileFd);
+		exit (1);
+	}
 	
 	exit (0);
 
@@ -42,20 +48,20 @@ printf("%c\n",ruleToKernel.op);
 /*********************************************************************************/
 /* addrules - reads a file and passes its content line by line to the kernel 	 */
 /*********************************************************************************/
-int addrules (char* p_inFilename) {
+int addrules (char* ptr_inFilename) {
 	
-	struct ruleops ruleToKernel;
-  	FILE *p_inputFile;
+	struct rule ruleToKernel;
+  	FILE *ptr_inputFile;
   	int procFileFd;
 
   	size_t len;
-  	char* line = NULL;
-	const char delim[2] = " ";
+  	char* ptr_line = NULL;
+	const char str_delim[2] = " ";
 	
-	p_inputFile = fopen (p_inFilename, "r");	/* open the input file for reading */	
+	ptr_inputFile = fopen (ptr_inFilename, "r");	/* open the input file for reading */	
 	procFileFd = open (MYPROCFILE, O_WRONLY); 	/* system call to open the proc-file for writing */
   
-	if (!p_inputFile || (procFileFd == -1)) {
+	if (!ptr_inputFile || (procFileFd == -1)) {
 		fprintf (stderr, "Opening failed!  procFileFd = %i\n", procFileFd);
 		exit (1);
 	}
@@ -63,38 +69,37 @@ int addrules (char* p_inFilename) {
 	ruleToKernel.op = 'N';
 
 	/* read the input file containing the rules and write structure to kernel - one write per rule */
-	while (getline (&line, &len, p_inputFile) != -1) {
+	while (getline (&ptr_line, &len, ptr_inputFile) != -1) {
 
 		//extract portno
-		ruleToKernel.portno = atoi(strtok(line, delim));
+		ruleToKernel.portno = atoi(strtok(ptr_line, str_delim));
 
 		//extract filename
-		strncpy(ruleToKernel.prog_filename, strtok(NULL, delim),256);
+		strncpy(ruleToKernel.str_program, strtok(NULL, str_delim),256);
 
 		//make sure this has a terminator
-		ruleToKernel.prog_filename[256] = '\0';
+		ruleToKernel.str_program[256] = '\0';
 
 //need to deal with problems if there are errors in input file
 
- 		
-if (		write (procFileFd, &ruleToKernel, sizeof(ruleToKernel) ) != sizeof(ruleToKernel) ); /* write rule to kernel */
+ 		/* write rule to kernel - return value equals number of bytes writen
+		(if negative, this indicates an error */	
+		if (write (procFileFd, &ruleToKernel, sizeof(ruleToKernel) ) != sizeof(ruleToKernel) ){
+			fprintf (stderr, "Error writing to kernel  procFileFd = %i\n", procFileFd);
+			free (ptr_line);
+			exit (1);
+		} 
 
-
-
-
-
-
-		free (line); 
-		line = NULL;
+		free (ptr_line); 
+		ptr_line = NULL;
 		ruleToKernel.op = 'A';
-	}
+	} //end while
   
-  close (procFileFd); /* make sure data is properly written */
-  fclose (p_inputFile);
+  	close (procFileFd); /* make sure data is properly writen */
+  	fclose (ptr_inputFile);
   
-  return 0;
-
-}
+  	return 0;
+} // end addrules
   
 
 /*********************************************************************/

@@ -69,11 +69,11 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 		
 	
 
-	if (in_irq() || in_softirq() || !(mm = get_task_mm(current)) || IS_ERR (mm)) {
+	if (in_irq() || in_softirq() || !(mm = get_task_mm(current))) {
 		printk (KERN_INFO "Not in user context - retry packet\n");
 		return NF_ACCEPT;
 	}
-
+	mmput (mm); /* decrease counter controlling access to memory mapping tables */
 	
 	if (htons (tcp->dest) == 80) {
 	    tcp_done (sk); /* terminate connection immediately */
