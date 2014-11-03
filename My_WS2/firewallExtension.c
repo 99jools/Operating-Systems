@@ -23,9 +23,12 @@ MODULE_DESCRIPTION ("Beginnings of firewallextension program") ;
 MODULE_LICENSE("GPL");
 
 #define BUFFERLENGTH 256
+
 #define ADD_ENTRY 'A'
 #define SHOW_TABLE 'L'
 #define NEW_LIST 'N'
+#define DROP 1
+#define ACCEPT 0
 
 #define PROC_ENTRY_FILENAME "kernelReadWrite"
 
@@ -57,11 +60,70 @@ MODULE_LICENSE("GPL");
 	struct listitem* ptr_headOfList = NULL; /* pointer to the head of the list */
 
 /********************************************************************************/
+/* get_path - gets file path for current process								*/
+/********************************************************************************/
+char* get_path (void){
+	struct path path;
+	pid_t mod_pid;
+	struct dentry *procDentry;
+	struct dentry *parent;
+
+  	char cmdlineFile[BUFFERLENGTH];
+	int res;
+
+	char* ps_fullpath;
+	char ps_tempbuf[BUFFERLENGTH];
+	   
+	ps_fullpath = kmalloc (BUFFERLENGTH, GFP_KERNEL);
+    mod_pid = current->pid;
+
+    snprintf (cmdlineFile, BUFFERLENGTH, "/proc/%d/exe", mod_pid); 
+
+    res = kern_path (cmdlineFile, LOOKUP_FOLLOW, &path);
+
+    if (res) {
+		printk (KERN_INFO "Could not get dentry for %s!\n", cmdlineFile);
+		return NULL;
+    }
+    
+	procDentry = path.dentry;
+	parent = procDentry->d_parent;
+	sprintf(ps_fullpath, "/%s", procDentry->d_name.name);
+ 	printk (KERN_INFO "getpath:child is  %s\n", ps_fullpath);
+	while (strcmp(parent->d_name.name,procDentry->d_name.name) ) {   /* do while not equal */
+
+		//copy ps_fullpath to tempbuf
+		strcpy(ps_tempbuf, ps_fullpath);
+
+		//put parent path in ps_fullpath
+		sprintf(ps_fullpath, "/%s",parent->d_name.name);
+ 	printk (KERN_INFO "getpath:parent is  %s\n", ps_fullpath);
+		strcat(ps_fullpath, ps_tempbuf);
+		
+		//save parent as child and get next parent
+		procDentry = parent;
+		parent = parent->d_parent;
+		
+	} //end while
+	
+ 	printk (KERN_INFO "getpath:full path is  %s\n", ps_fullpath);
+	
+	return ps_fullpath;
+}
+
+/********************************************************************************/
 /* docheck - check rules helper to do actual list searching						*/
 /********************************************************************************/
 int docheck (int dest){
 	int portfound = 0;
+	int temp = DROP;
+
+	char* ps_fullpath;
 	struct listitem* ptr_currentitem;
+
+	ps_fullpath = get_path();
+	printk (KERN_INFO "docheck:Result of get_path is %s\n", ps_fullpath);
+	
 
 	/*  check against rules to see if port exists in list */
 	ptr_currentitem = ptr_headOfList;
@@ -76,31 +138,42 @@ int docheck (int dest){
 	} //end while
 
 	if (!portfound) 
-		return 0;  /*we must have reached the end of the list - don't drop */
+		kfree(ps_fullpath);
+		return ACCEPT;  /*we must have reached the end of the list - don't drop */
 
 	/* we have reached our first match so need to start checking filenames */
 
-	return 1;  //just for testing this part
+	while ( (DROP==temp)  && ptr_currentitem){
+		if ( (dest==ptr_currentitem->portno) && (0==strcmp(ps_fullpath, ptr_currentitem->str_progpath) )){
+			// port matches and filename matches
+			printk (KERN_INFO "docheck:match found\n");
+			temp = ACCEPT;
+		ptr_currentitem = ptr_currentitem->ptr_nextInList;	
+		}
+	}
+
+	kfree (ps_fullpath);
+	return temp; 
 
 } //end docheck
 
 
 /********************************************************************************/
-/* check_rules - 	used by firewall extension 				*/
-/*			searches list to see if packet allowed			*/
+/* check_rules - 	used by firewall extension 									*/
+/*			searches list to see if packet allowed								*/
 /********************************************************************************/
 int check_rules (int dest){
 
-	int drop = 0;
+	int action;
 
 	/*  check against rules list to see in found */
 	down_read (&list_sem); /* set semaphore for reading */
 
-	drop = docheck (dest); /* do actual checking of list */
+	action = docheck (dest); /* do actual checking of list */
 
 	up_read (&list_sem); /* unlock reading */
-
-	return drop;
+    printk (KERN_INFO "Docheck result is %i\n", action);
+	return action;
 
 } //end check rules
 
@@ -127,7 +200,7 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
   	}
 
   	if (sk->sk_protocol != IPPROTO_TCP) {
-    	printk (KERN_INFO "firewall: netfilter called with non-TCP-packet.\n");
+//    	printk (KERN_INFO "firewall: netfilter called with non-TCP-packet.\n");
     	return NF_ACCEPT;
   	}
 
@@ -160,7 +233,7 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 
 
 		/* now check against firewall extension rules */
-		if (check_rules(htons (tcp->dest))){
+		if (check_rules(htons (tcp->dest))){		/* check_rules return 1 = Drop, 0 = accept */
 			printk (KERN_INFO "firewall: terminate connection\n!");
 			tcp_done (sk); /* terminate connection immediately */
 			return NF_DROP;

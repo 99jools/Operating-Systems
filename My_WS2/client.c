@@ -50,7 +50,8 @@ int listrules () {
 /*********************************************************************************/
 int addrules (char* ptr_inFilename) {
 	
-	struct stat sb;
+//	int statrc;
+//	struct stat sb;
 	struct rule ruleToKernel;
   	FILE *ptr_inputFile;
   	int procFileFd;
@@ -82,16 +83,18 @@ int addrules (char* ptr_inFilename) {
 		ruleToKernel.str_program[256] = '\0';
 
 		//check that file exists and is executable
- printf("checking file status %s \n",ruleToKernel.str_program);
 
-		  stat("\\usr\\bin\\telnet", &sb);
+/*
+		  statrc = stat(ruleToKernel.str_program, &sb);
+ printf("checking file status for %s - stat rc is %i  \n",ruleToKernel.str_program, statrc);
+
            if ((sb.st_mode & S_IFMT) == S_IFREG) {
                 printf("is regular file\n");
            }
 		      
-	
+*/	
 
-//need to deal with problems if there are errors in input file
+
 
  		/* write rule to kernel - return value equals number of bytes writen
 		(if negative, this indicates an error */	

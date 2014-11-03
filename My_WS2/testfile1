@@ -2,4 +2,5 @@
 5000 /tmp/testproc2
 5001 /tmp/testproc1
 5002 /tmp/testproc1
-5003 /usr/bin/telnet
+5003 /usr/bin/telnet.netkit
+5000 /bin/telnet.netkit
