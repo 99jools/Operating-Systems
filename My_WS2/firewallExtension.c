@@ -65,8 +65,8 @@ MODULE_LICENSE("GPL");
 char* get_path (void){
 	struct path path;
 	pid_t mod_pid;
-	struct dentry *procDentry;
-	struct dentry *parent;
+	struct dentry* ptr_procDentry;
+	struct dentry* ptr_parent;
 
   	char cmdlineFile[BUFFERLENGTH];
 	int res;
@@ -75,38 +75,36 @@ char* get_path (void){
 	char ps_tempbuf[BUFFERLENGTH];
 	   
 	ps_fullpath = kmalloc (BUFFERLENGTH, GFP_KERNEL);
-    mod_pid = current->pid;
+    	mod_pid = current->pid;
 
-    snprintf (cmdlineFile, BUFFERLENGTH, "/proc/%d/exe", mod_pid); 
+    	snprintf (cmdlineFile, BUFFERLENGTH, "/proc/%d/exe", mod_pid); 
 
-    res = kern_path (cmdlineFile, LOOKUP_FOLLOW, &path);
+    	res = kern_path (cmdlineFile, LOOKUP_FOLLOW, &path);
 
-    if (res) {
+    	if (res) {
 		printk (KERN_INFO "Could not get dentry for %s!\n", cmdlineFile);
 		return NULL;
-    }
-    
-	procDentry = path.dentry;
-	parent = procDentry->d_parent;
-	sprintf(ps_fullpath, "/%s", procDentry->d_name.name);
- 	printk (KERN_INFO "getpath:child is  %s\n", ps_fullpath);
-	while (strcmp(parent->d_name.name,procDentry->d_name.name) ) {   /* do while not equal */
+    	}
+    	// process child first
+	ptr_procDentry = path.dentry;
+	sprintf(ps_fullpath, "/%s", ptr_procDentry->d_name.name);
+	
+	//now get parent
+	ptr_parent = ptr_procDentry->d_parent;
+
+	while (ptr_parent != ptr_parent->d_parent) {   /* do while not equal */
 
 		//copy ps_fullpath to tempbuf
 		strcpy(ps_tempbuf, ps_fullpath);
 
 		//put parent path in ps_fullpath
-		sprintf(ps_fullpath, "/%s",parent->d_name.name);
- 	printk (KERN_INFO "getpath:parent is  %s\n", ps_fullpath);
-		strcat(ps_fullpath, ps_tempbuf);
+		sprintf(ps_fullpath, "/%s",ptr_parent->d_name.name);
+ 		strcat(ps_fullpath, ps_tempbuf);
 		
-		//save parent as child and get next parent
-		procDentry = parent;
-		parent = parent->d_parent;
+		// get next parent
+		ptr_parent = ptr_parent->d_parent;
 		
 	} //end while
-	
- 	printk (KERN_INFO "getpath:full path is  %s\n", ps_fullpath);
 	
 	return ps_fullpath;
 }
@@ -116,7 +114,7 @@ char* get_path (void){
 /********************************************************************************/
 int docheck (int dest){
 	int portfound = 0;
-	int temp = DROP;
+	int temp = ACCEPT;   // default position is to accept packet unless rules say otherwise
 
 	char* ps_fullpath;
 	struct listitem* ptr_currentitem;
@@ -124,33 +122,35 @@ int docheck (int dest){
 	ps_fullpath = get_path();
 	printk (KERN_INFO "docheck:Result of get_path is %s\n", ps_fullpath);
 	
-
 	/*  check against rules to see if port exists in list */
 	ptr_currentitem = ptr_headOfList;
 
 	while ( (!portfound) && ptr_currentitem) {
+	printk (KERN_INFO "docheck:current item portno -%i prog -  %s\n", ptr_currentitem->portno, ptr_currentitem->str_progpath);
+
 		// check port number
 		if (dest==ptr_currentitem->portno) {
 			portfound = 1;
+			temp = DROP;  /* port found so default is now that we will DROP unless a match found */ 
 		} else {
 			ptr_currentitem = ptr_currentitem->ptr_nextInList; /* only move on if not found */
 		} 
 	} //end while
 
-	if (!portfound) 
-		kfree(ps_fullpath);
-		return ACCEPT;  /*we must have reached the end of the list - don't drop */
+	/* if we have reached our first match, start checking filenames */
+	while ( (temp==DROP)  && ptr_currentitem){
+		printk (KERN_INFO "strcmp const first = %i\n", strcmp("/usr/bin/telnet.netkit", ps_fullpath));
+printk (KERN_INFO "strlen = %zd   %zd\n", strlen(ptr_currentitem->str_progpath), strlen(ps_fullpath));
+		printk (KERN_INFO "strncmp = %i\n", strncmp(ptr_currentitem->str_progpath, ps_fullpath,30));
 
-	/* we have reached our first match so need to start checking filenames */
-
-	while ( (DROP==temp)  && ptr_currentitem){
 		if ( (dest==ptr_currentitem->portno) && (0==strcmp(ps_fullpath, ptr_currentitem->str_progpath) )){
 			// port matches and filename matches
 			printk (KERN_INFO "docheck:match found\n");
 			temp = ACCEPT;
+		} //end if
+		//check next item
 		ptr_currentitem = ptr_currentitem->ptr_nextInList;	
-		}
-	}
+	} //end while
 
 	kfree (ps_fullpath);
 	return temp; 
@@ -291,7 +291,6 @@ void clear_list (void) {
   	down_write (&list_sem);
 
 	while (NULL != ptr_headOfList) {
-		printk (KERN_INFO "Removing portno %i progpath %s from list\n", ptr_headOfList->portno,ptr_headOfList->str_progpath );
 		ptr_temp = ptr_headOfList->ptr_nextInList;  //temporarily store pointer
 		kfree(ptr_headOfList);
 		ptr_headOfList = ptr_temp;		//head of list now points to next item
