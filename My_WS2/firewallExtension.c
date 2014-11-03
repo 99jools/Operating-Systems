@@ -86,8 +86,8 @@ int docheck (int dest){
 
 
 /********************************************************************************/
-/* check_rules - 	used by firewall extension 									*/
-/*					searches list to see if packet allowed						*/
+/* check_rules - 	used by firewall extension 				*/
+/*			searches list to see if packet allowed			*/
 /********************************************************************************/
 int check_rules (int dest){
 

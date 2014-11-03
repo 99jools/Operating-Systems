@@ -50,6 +50,7 @@ int listrules () {
 /*********************************************************************************/
 int addrules (char* ptr_inFilename) {
 	
+	struct stat sb;
 	struct rule ruleToKernel;
   	FILE *ptr_inputFile;
   	int procFileFd;
@@ -79,6 +80,16 @@ int addrules (char* ptr_inFilename) {
 
 		//make sure this has a terminator
 		ruleToKernel.str_program[256] = '\0';
+
+		//check that file exists and is executable
+ printf("checking file status %s \n",ruleToKernel.str_program);
+
+		  stat("\\usr\\bin\\telnet", &sb);
+           if ((sb.st_mode & S_IFMT) == S_IFREG) {
+                printf("is regular file\n");
+           }
+		      
+	
 
 //need to deal with problems if there are errors in input file
 
