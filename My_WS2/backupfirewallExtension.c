@@ -15,7 +15,6 @@
 #include <asm/uaccess.h>
 #include <linux/list.h>
 #include "kernel_comms.h"
-
  
 
 MODULE_AUTHOR ("Julie Sewards <jrs300@student.bham.ac.uk>");
@@ -29,20 +28,10 @@ MODULE_LICENSE("GPL");
 
 #define PROC_ENTRY_FILENAME "kernelReadWrite"
 
-/* make IP4-addresses readable */
-
-#define NIPQUAD(addr) \
-        ((unsigned char *)&addr)[0], \
-        ((unsigned char *)&addr)[1], \
-        ((unsigned char *)&addr)[2], \
-        ((unsigned char *)&addr)[3]
-
 
 /********************************************************************************/
 /* Variable declarations														*/
 /********************************************************************************/
-
-	struct nf_hook_ops *reg;
 
 	DECLARE_RWSEM(list_sem); /* semaphore to protect list access */
 
@@ -55,126 +44,6 @@ MODULE_LICENSE("GPL");
 	}; /* structure for a single item in rules list */
 
 	struct listitem* ptr_headOfList = NULL; /* pointer to the head of the list */
-
-/********************************************************************************/
-/* docheck - check rules helper to do actual list searching						*/
-/********************************************************************************/
-int docheck (int dest){
-	int portfound = 0;
-	struct listitem* ptr_currentitem;
-
-	/*  check against rules to see if port exists in list */
-	ptr_currentitem = ptr_headOfList;
-
-	while ( (!portfound) && ptr_currentitem) {
-		// check port number
-		if (dest==ptr_currentitem->portno) {
-			portfound = 1;
-		} else {
-			ptr_currentitem = ptr_currentitem->ptr_nextInList; /* only move on if not found */
-		} 
-	} //end while
-
-	if (!portfound) 
-		return 0;  /*we must have reached the end of the list - don't drop */
-
-	/* we have reached our first match so need to start checking filenames */
-
-	return 1;  //just for testing this part
-
-} //end docheck
-
-
-/********************************************************************************/
-/* check_rules - 	used by firewall extension 									*/
-/*					searches list to see if packet allowed						*/
-/********************************************************************************/
-int check_rules (int dest){
-
-	int drop = 0;
-
-	/*  check against rules list to see in found */
-	down_read (&list_sem); /* set semaphore for reading */
-
-	drop = docheck (dest); /* do actual checking of list */
-
-	up_read (&list_sem); /* unlock reading */
-
-	return drop;
-
-} //end check rules
-
-/********************************************************************************/
-/* FirewallExtensionHook - applies firewall extension							*/
-/********************************************************************************/
-
-unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
-				    struct sk_buff *skb,
-				    const struct net_device *in,
-				    const struct net_device *out,
-				    int (*okfn)(struct sk_buff *)) {
-
-    struct tcphdr *tcp;
-    struct tcphdr _tcph;
-    struct mm_struct *mm;
-    struct sock *sk;
-
-
-  	sk = skb->sk;
-  	if (!sk) {
-    	printk (KERN_INFO "firewall: netfilter called with empty socket!\n");;
-    	return NF_ACCEPT;
-  	}
-
-  	if (sk->sk_protocol != IPPROTO_TCP) {
-    	printk (KERN_INFO "firewall: netfilter called with non-TCP-packet.\n");
-    	return NF_ACCEPT;
-  	}
-
-    
-
-    /* get the tcp-header for the packet */
-    tcp = skb_header_pointer(skb, ip_hdrlen(skb), sizeof(struct tcphdr), &_tcph);
-    if (!tcp) {
-		printk (KERN_INFO "Could not get tcp-header!\n");
-		return NF_ACCEPT;
-    }
-
-    if (tcp->syn) {
-		struct iphdr *ip;
-	
-		printk (KERN_INFO "firewall: Starting connection \n");
-		ip = ip_hdr (skb);
-		if (!ip) {
-	    	printk (KERN_INFO "firewall: Cannot get IP header!\n!");
-		} else {
-	    	printk (KERN_INFO "firewall: Destination address = %u.%u.%u.%u\n", NIPQUAD(ip->daddr));
-		}
-		printk (KERN_INFO "firewall: destination port = %d\n", htons(tcp->dest)); 
-	
-		if (in_irq() || in_softirq() || !(mm = get_task_mm(current))) {
-			printk (KERN_INFO "Not in user context - retry packet\n");
-			return NF_ACCEPT;
-		}
-		mmput (mm); /* decrease counter controlling access to memory mapping tables */
-
-
-		/* now check against firewall extension rules */
-		if (check_rules(htons (tcp->dest))){
-			printk (KERN_INFO "firewall: terminate connection\n!");
-			tcp_done (sk); /* terminate connection immediately */
-			return NF_DROP;
-		}
-
-    }
-
-    return NF_ACCEPT;	
-} //end FirewallExtensionHook
-
-
-
-
-
 
 /********************************************************************************/
 /* add_entry - adds line from user space to the list kept in kernel space		*/
@@ -206,6 +75,8 @@ int add_entry (struct rule* ptr_ruleToAdd, int count) {
 	return count;
 
 } //end add_entry
+
+
 
 
 /********************************************************************************/
@@ -308,7 +179,7 @@ int procfs_open(struct inode *inode, struct file *file)
 
 
 /********************************************************************************/
-/* procfs_close - called when proc file is closed - decrements module ref count	*/
+/* procfs_close - called when proc file is closed - decrements module reference count	*/
 /********************************************************************************/
 int procfs_close(struct inode *inode, struct file *file)
 {
@@ -317,73 +188,48 @@ int procfs_close(struct inode *inode, struct file *file)
     return 0;		/* success */
 } //end procfs_close
 
-/********************************************************************************/
-/* structure definitions - refers to other functions so have to be declared after*/
-/********************************************************************************/
-
-EXPORT_SYMBOL (FirewallExtensionHook);
-
-static struct nf_hook_ops firewallExtension_ops = {
-	.hook    = FirewallExtensionHook,
-	.owner   = THIS_MODULE,
-	.pf      = PF_INET,
-	.priority = NF_IP_PRI_FIRST,
-	.hooknum = NF_INET_LOCAL_OUT
-};
-
-const struct file_operations File_Ops_4_Our_Proc_File = {
-	.owner 	= THIS_MODULE,
-	.write 	= kernelWrite,
-	.open 	= procfs_open,
-	.release = procfs_close,
-};
 
 
+//this stricture refers to kernelWrite so hasto be defined 
+	const struct file_operations File_Ops_4_Our_Proc_File = {
+		.owner 	= THIS_MODULE,
+		.write 	= kernelWrite,
+		.open 	= procfs_open,
+		.release = procfs_close,
+	};
 /********************************************************************************/
 /* the function called when the module is initially loaded						*/
 /********************************************************************************/
 int init_module(void) {
-
-	int errno;
   
  	/* create the /proc file */
     Our_Proc_File = proc_create_data (PROC_ENTRY_FILENAME, 0644, NULL, &File_Ops_4_Our_Proc_File, NULL);
     
     /* check if the /proc file was created successfuly */
-    if (Our_Proc_File == NULL){
+    	if (Our_Proc_File == NULL){
 		printk(KERN_ALERT "Error: Could not initialize /proc/%s\n",
 		PROC_ENTRY_FILENAME);
 		return -ENOMEM;
     }
-    printk(KERN_INFO "/proc/%s created\n", PROC_ENTRY_FILENAME);
-
-	//register hook
-	errno = nf_register_hook (&firewallExtension_ops); 
-	if (errno) {
-    	printk (KERN_INFO "Firewall extension could not be registered!\n");
-		return errno;
-  	}
-
+    
+	printk(KERN_INFO "/proc/%s created\n", PROC_ENTRY_FILENAME);
 	printk(KERN_INFO "Firewall extensions module loaded\n");
-    return 0;	/* success - a non 0 return means init_module failed; module can't be loaded. */
-} //end init_module
-
+    	return 0;	/* success - a non 0 return means init_module failed; module can't be loaded. */
+}
 
 /********************************************************************************/
 /* cleanup_module -  called when the module is unloaded							*/
 /********************************************************************************/
 void cleanup_module(void) {
 
-	nf_unregister_hook (&firewallExtension_ops); /* restore everything to normal */
-  	printk(KERN_INFO "filewall extension: hook unregistered.\n");
-
 	remove_proc_entry (PROC_ENTRY_FILENAME, NULL);  /* now, no further module calls possible */
+	printk(KERN_INFO "Firewall extensions module unloaded\n");
   	printk(KERN_INFO "/proc/%s removed\n", PROC_ENTRY_FILENAME);  
 
   	/* free the list */
 	clear_list();
-
-  	printk(KERN_INFO "Firewall extension: module unloaded\n");
+  
+  	printk(KERN_INFO "kernelWrite:Proc module unloaded.\n");
 
 } //end cleanup_module 
 
