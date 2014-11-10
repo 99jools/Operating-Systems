@@ -11,11 +11,11 @@ all:	client
 	 
 
 client: client.c
-	gcc  -Wall -Werror -pthread -D _GNU_SOURCE -o client.o client.c
+	gcc  -Wall -Werror -pthread -D _GNU_SOURCE -o client client.c
 
 clean:
 	make -C $(KERNELDIR) M=$(PWD) clean
-	$(RM) -f client.o *~
+	$(RM) -f client *~
 
 install:	
 	make -C $(KERNELDIR) M=$(PWD) modules_install

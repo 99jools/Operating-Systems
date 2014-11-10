@@ -139,9 +139,6 @@ int docheck (int dest){
 
 	/* if we have reached our first match, start checking filenames */
 	while ( (temp==DROP)  && ptr_currentitem){
-		printk (KERN_INFO "strcmp const first = %i\n", strcmp("/usr/bin/telnet.netkit", ps_fullpath));
-printk (KERN_INFO "strlen = %zd   %zd\n", strlen(ptr_currentitem->str_progpath), strlen(ps_fullpath));
-		printk (KERN_INFO "strncmp = %i\n", strncmp(ptr_currentitem->str_progpath, ps_fullpath,30));
 
 		if ( (dest==ptr_currentitem->portno) && (0==strcmp(ps_fullpath, ptr_currentitem->str_progpath) )){
 			// port matches and filename matches

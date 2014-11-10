@@ -50,8 +50,7 @@ int listrules () {
 /*********************************************************************************/
 int addrules (char* ptr_inFilename) {
 	
-//	int statrc;
-//	struct stat sb;
+	struct stat sb;
 	struct rule ruleToKernel;
   	FILE *ptr_inputFile;
   	int procFileFd;
@@ -82,31 +81,30 @@ int addrules (char* ptr_inFilename) {
 		//make sure this has a terminator
 		ruleToKernel.str_program[256] = '\0';
 
+		// remove any newline character
+		if ( ruleToKernel.str_program[strlen(ruleToKernel.str_program) -1] == '\n'  ){
+			ruleToKernel.str_program[strlen(ruleToKernel.str_program) -1] = '\0';
+		}
+
 		//check that file exists and is executable
+		stat(ruleToKernel.str_program, &sb);
+		if ((sb.st_mode & S_IFMT) != S_IFREG) {
+			printf("%s is not an executable file.  Rule disregarded\n",ruleToKernel.str_program);
+		} else {
 
-/*
-		  statrc = stat(ruleToKernel.str_program, &sb);
- printf("checking file status for %s - stat rc is %i  \n",ruleToKernel.str_program, statrc);
-
-           if ((sb.st_mode & S_IFMT) == S_IFREG) {
-                printf("is regular file\n");
-           }
-		      
-*/	
-
-
-
- 		/* write rule to kernel - return value equals number of bytes writen
-		(if negative, this indicates an error */	
-		if (write (procFileFd, &ruleToKernel, sizeof(ruleToKernel) ) != sizeof(ruleToKernel) ){
-			fprintf (stderr, "Error writing to kernel  procFileFd = %i\n", procFileFd);
-			free (ptr_line);
-			exit (1);
-		} 
+	 		/* write rule to kernel - return value equals number of bytes writen
+			(if negative, this indicates an error */	
+			if (write (procFileFd, &ruleToKernel, sizeof(ruleToKernel) ) != sizeof(ruleToKernel) ){
+				fprintf (stderr, "Error writing to kernel  procFileFd = %i\n", procFileFd);
+				free (ptr_line);
+				exit (1);
+			} 
+			ruleToKernel.op = 'A';  /* only do this if we have writen a valid rule to kernel */
+		} // end if else
 
 		free (ptr_line); 
 		ptr_line = NULL;
-		ruleToKernel.op = 'A';
+
 	} //end while
   
   	close (procFileFd); /* make sure data is properly writen */
