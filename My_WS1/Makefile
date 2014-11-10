@@ -5,7 +5,7 @@ CFLAGS = -Wall -Werror -pthread -D _GNU_SOURCE
 GCC = gcc $(CFLAGS)
 
 
-APPS = server serverThreaded client host_lookup test
+APPS =  serverThreaded client host_lookup test
 
 all: $(APPS)
 

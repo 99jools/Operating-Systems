@@ -1,1 +1,1 @@
-#define RESET_COUNTER 0
+#define SET_MAX_SIZE 0

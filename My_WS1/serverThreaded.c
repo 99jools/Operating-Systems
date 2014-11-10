@@ -13,9 +13,9 @@
 
 #define CONCURRENT 10
 
-int active_filenames = 0;  // the number of threads currently performing encryption or decryption on a file
-char* pfiles[CONCURRENT] = {NULL};
-int count = 0;
+int count = 0; // the number of threads currently performing encryption or decryption on a file
+char* pfiles[CONCURRENT];
+
 pthread_mutex_t mut; /* the lock */
 
 
@@ -26,33 +26,39 @@ void error(char *msg)
     exit(1);
 } //end error
 
-/* function to decide if we are able to proceed with work on that filename */
+/* function to decide if we are able to proceed with work on that filename 
+   manages locks and call local function to do work
+*/
 int proceed (struct Rqst* prequest) {
-	int i;
-	char* tmpPtr;
-  	pthread_mutex_lock (&mut); /* lock exclusive access to array filename_ptr */
+	int ret;  //the return code
+	pthread_mutex_lock (&mut); /* lock exclusive access to array filename_ptr */
+	ret = proceed_local(prequest);
+	pthread_mutex_unlock (&mut); /* release the lock */
+	return ret;   //returns 99 or the position of our entry in array
+} // end proceed
 
-	for (i=0; i<count; ++i){
+
+/* local function to do decision work */
+int proceed_local (struct Rqst* prequest) {
+	int i;
+
+printf("I am about to sleep - active files = %i\n",count);
+sleep(10);
+printf("I have woken up - active files = %i\n",count);
+	if (CONCURRENT ==count) return 99;  // array is full - give up
+	for (i=0; i<count; i++){
 		//check if filename is in active list
-		if (strcmp( prequest->filename, pfiles[i])) {
-			//filename found - we will not proceed
-			pthread_mutex_unlock (&mut); /* release the lock */
+		if (0==strcmp( prequest->filename, pfiles[i])) {
+			//zero == filename found - we will not proceed
 			return 99;
 		}  
 	}
 
 	// filename not found in currently active list - add to list 	
-	++count;  //increase count
+	pfiles[count++] = prequest->filename;
+	return (count - 1);  //returns the position where we just inserted our entry
 
-printf("%s\n", prequest->filename );
-	tmpPtr = prequest->filename;
-
-	pfiles[count] = tmpPtr;
-	pthread_mutex_unlock (&mut); /* release the lock */
-	return count;  //returns position where we just entered our filename
-
-printf("%s\n", "am leaving proceed");
-} //end proceed
+} //end proceed_local
 
 /*function that does encryption work */
 int do_gpg(struct Rqst* prequest){
@@ -103,7 +109,7 @@ void *processRequest (void *args) {
 	struct Resp response;
   	int n;
 	int rc;
-  	int tmp;
+  	int position_inserted;
   
 
 	/* read the data into request*/
@@ -112,13 +118,16 @@ void *processRequest (void *args) {
 	 error ("ERROR reading from socket");
 
 	//decide if we can operate on that filename 
-	tmp = proceed(&request);
-	if (99 > tmp) {
+	position_inserted = proceed(&request);
+
+	if (99==position_inserted ) {
+		strcpy(response.msg,"File currently in use or concurrent limit exceeded - operation terminated");
+	} else {
 		//we have exclusive use of that filename - do work
     		rc = do_gpg(&request);
-		printf("Error code %i\n",rc);
-
+	
 		//construct the response
+		printf("Error code %i\n",rc);
 		switch (rc){
 			case 16:
 			case 20:
@@ -144,12 +153,16 @@ void *processRequest (void *args) {
 
 		//update array to remove filename and release our hold on it
 		pthread_mutex_lock (&mut); 	/* lock exclusive access to array filename_ptr */
-		pfiles[tmp] = pfiles[count];	/* remove entry by overwriting with last entry */
+		if ((count - position_inserted) > 1) {
+			//we are not the last element in the array
+			pfiles[position_inserted] = pfiles[count - 1];	/* remove entry by overwriting with last entry */
+
+		}
+
+
 		--count; 			/* decrease count to move end marker */
 		pthread_mutex_unlock (&mut); 	/* release the lock */
-	} else {
-		strcpy(response.msg,"File currently in use - operation terminated");
-	}
+	} 
 
     /* send the reply back */
 	n = write (*newsockfd, &response, sizeof(response));

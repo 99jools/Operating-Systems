@@ -8,20 +8,25 @@
 #include <linux/fs.h>
 #include <asm/uaccess.h>	/* for put_user */
 #include <charDeviceDriver.h>
-
+#include "ioctl.h"
 
 MODULE_LICENSE("GPL");
 
-/********************************************************************************/
-/* Variable declarations														*/
-/********************************************************************************/
+/* 
+ * This function is called whenever a process tries to do an ioctl on our
+ * device file. We get two extra parameters (additional to the inode and file
+ * structures, which all device functions get): the number of the ioctl called
+ * and the parameter given to the ioctl function.
+ *
+ * If the ioctl is write or read/write (meaning output is returned to the
+ * calling process), the ioctl call returns the output of this function.
+ *
+ */
+
+
 DEFINE_MUTEX  (devLock);
-static int currentMaxTotal = 
+static int counter = 0;
 
-
-/********************************************************************************/
-/* ioctl  -  called when proc file is written to with ioctl command				*/
-/********************************************************************************/
 static long device_ioctl(struct file *file,	/* see include/linux/fs.h */
 		 unsigned int ioctl_num,	/* number and param for ioctl */
 		 unsigned long ioctl_param)
@@ -30,14 +35,10 @@ static long device_ioctl(struct file *file,	/* see include/linux/fs.h */
 	/* 
 	 * Switch according to the ioctl called 
 	 */
-	if (ioctl_num == SET_MAX_SIZE) {
-	    printk(KERN_INFO "I am in ioctl with parameter SET_MAX_SIZE/n");
-
-	/* check that I am able to assign new Max Size */
-	/* if ioctl_param < currentMaxTotal or ioctl_param < currentTotalSize
-
-	  
-	    return 0; //success
+	if (ioctl_num == RESET_COUNTER) {
+	    counter = 0; 
+	    /* 	    return 0; */
+	    return 5; /* can pass integer as return value */
 	}
 
 	else {
@@ -48,9 +49,9 @@ static long device_ioctl(struct file *file,	/* see include/linux/fs.h */
 }
 
 
-/********************************************************************************/
-/* init_module  -  the function called when the module is initially loaded		*/
-/********************************************************************************/
+/*
+ * This function is called when the module is loaded
+ */
 int init_module(void)
 {
         Major = register_chrdev(0, DEVICE_NAME, &fops);
@@ -60,40 +61,33 @@ int init_module(void)
 	  return Major;
 	}
 
-	//create an empty list of messages
+	printk(KERN_INFO "I was assigned major number %d. To talk to\n", Major);
+	printk(KERN_INFO "the driver, create a dev file with\n");
+	printk(KERN_INFO "'mknod /dev/%s c %d 0'.\n", DEVICE_NAME, Major);
+	printk(KERN_INFO "Try various minor numbers. Try to cat and echo to\n");
+	printk(KERN_INFO "the device file.\n");
+	printk(KERN_INFO "Remove the device file and module when done.\n");
 
-
-	printk(KERN_INFO "charDeviceDriver loaded - device assigned major number %d\n", Major);
 	return SUCCESS;
 }
 
-/********************************************************************************/
-/* cleanup_module -  called when the module is unloaded							*/
-/********************************************************************************/
+/*
+ * This function is called when the module is unloaded
+ */
 void cleanup_module(void)
 {
-
-	/* free the list */
-//	clear_list();
-
 	/*  Unregister the device */
 	unregister_chrdev(Major, DEVICE_NAME);
-  	printk(KERN_INFO "charDeviceDriver: module unloaded\n");
 }
 
+/*
+ * Methods
+ */
 
-
-
-
-
-
-
-
-/********************************************************************************/
-/* device_open -	Called when a process tries to open the device file, like 	*/
-/*					"cat /dev/mycharfile"										*/
-/********************************************************************************/ 
-
+/* 
+ * Called when a process tries to open the device file, like
+ * "cat /dev/mycharfile"
+ */
 static int device_open(struct inode *inode, struct file *file)
 {
     
@@ -111,10 +105,7 @@ static int device_open(struct inode *inode, struct file *file)
     return SUCCESS;
 }
 
-/********************************************************************************/
-/* device_close -	Called when a process tries to close the device file	 	*/
-/********************************************************************************/
-
+/* Called when a process closes the device file. */
 static int device_release(struct inode *inode, struct file *file)
 {
     mutex_lock (&devLock);
@@ -129,11 +120,10 @@ static int device_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-/********************************************************************************/
-/* device_open -	Called when a process which already opened the dev file, 	*/
-/* 					attempts to read from it.									*/
-/********************************************************************************/  
-
+/* 
+ * Called when a process, which already opened the dev file, attempts to
+ * read from it.
+ */
 static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 			   char *buffer,	/* buffer to fill with data */
 			   size_t length,	/* length of the buffer     */
