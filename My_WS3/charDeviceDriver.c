@@ -31,7 +31,7 @@ static long device_ioctl(struct file *file,	/* see include/linux/fs.h */
 	 * Switch according to the ioctl called 
 	 */
 	if (ioctl_num == SET_MAX_SIZE) {
-	    printk(KERN_INFO "I am in ioctl with parameter SET_MAX_SIZE/n");
+	    printk(KERN_INFO "charDeviceDriver: I am in ioctl with parameter SET_MAX_SIZE/n");
 
 	/* check that I am able to assign new Max Size */
 	/* if ioctl_param < currentMaxTotal or ioctl_param < currentTotalSize
@@ -56,7 +56,7 @@ int init_module(void)
         Major = register_chrdev(0, DEVICE_NAME, &fops);
 
 	if (Major < 0) {
-	  printk(KERN_ALERT "Registering char device failed with %d\n", Major);
+	  printk(KERN_ALERT "charDeviceDriver: Registering char device failed with %d\n", Major);
 	  return Major;
 	}
 
@@ -97,18 +97,9 @@ void cleanup_module(void)
 static int device_open(struct inode *inode, struct file *file)
 {
     
-    mutex_lock (&devLock);
-    if (Device_Open) {
-	mutex_unlock (&devLock);
-	return -EBUSY;
-    }
-    Device_Open++;
-    mutex_unlock (&devLock);
-    sprintf(msg, "I already told you %d times Hello world!\n", counter++);
-    msg_Ptr = msg;
-    try_module_get(THIS_MODULE);
-    
-    return SUCCESS;
+
+    printk(KERN_INFO "charDeviceDriver: in device_open\n");
+    return 0;
 }
 
 /********************************************************************************/
@@ -117,15 +108,8 @@ static int device_open(struct inode *inode, struct file *file)
 
 static int device_release(struct inode *inode, struct file *file)
 {
-    mutex_lock (&devLock);
-	Device_Open--;		/* We're now ready for our next caller */
-	mutex_unlock (&devLock);
-	/* 
-	 * Decrement the usage count, or else once you opened the file, you'll
-	 * never get get rid of the module. 
-	 */
-	module_put(THIS_MODULE);
 
+ 	printk(KERN_INFO "charDeviceDriver: in device_close\n");
 	return 0;
 }
 
@@ -145,7 +129,7 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 	int bytes_read = 0;
 
 
-   printk(KERN_INFO "I am in device_read/n");
+   printk(KERN_INFO "charDeviceDriver: I am in device_read/n");
 
 	/* 
 	 * Most read functions return the number of bytes put into the buffer
@@ -157,6 +141,6 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 static ssize_t
 device_write(struct file *filp, const char *buff, size_t len, loff_t * off)
 {
-	printk(KERN_ALERT "I am in device_write.\n");
+	printk(KERN_ALERT "charDeviceDriver: I am in device_write.\n");
 	return -EINVAL;
 }
