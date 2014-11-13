@@ -11,6 +11,11 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
 #define SUCCESS 0
 #define DEVICE_NAME "chardev"	
 #define BUF_LEN 4096			/* Max length of the message from the device */
+#define K 1024
+#define INCREMENT 1
+#define DECREMENT -1
+#define ISZERO 0
+#define HASROOM 2
 
 /* 
  * Global variables are declared as static, so are global within the file. 
@@ -27,3 +32,8 @@ static struct file_operations fops = {
 	.unlocked_ioctl = device_ioctl,
 	.release = device_release
 };
+
+
+
+
+

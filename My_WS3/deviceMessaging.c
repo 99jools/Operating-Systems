@@ -17,7 +17,9 @@ MODULE_LICENSE("GPL");
 /* Variable declarations														*/
 /********************************************************************************/
 DEFINE_MUTEX  (devLock);
-//static int currentMaxTotal = 0;
+
+static int g_TotalAllowable = 2 * K * K;
+static int g_CurrentTotal = 0;
 
 
 /********************************************************************************/
@@ -60,7 +62,7 @@ int init_module(void)
 	  return Major;
 	}
 
-	//create an empty list of messages
+//create an empty list of messages
 
 
 	printk(KERN_INFO "deviceMessaging loaded - device assigned major number %d\n", Major);
@@ -80,12 +82,6 @@ void cleanup_module(void)
 	unregister_chrdev(Major, DEVICE_NAME);
   	printk(KERN_INFO "deviceMessaging: module unloaded\n");
 }
-
-
-
-
-
-
 
 
 
@@ -140,9 +136,80 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 	return bytes_read;
 }
 
-/* Called when a process writes to dev file: echo "hi" > /dev/hello  */
+/********************************************************************************/
+/* do_count_under_lock - manages locking to increment and decrement count 	*/
+/* 																				*/
+/********************************************************************************/ 
+int do_count_under_lock(int op, size_t len){
+	
+	// acquire lock
+	mutex_lock (&devLock);
+
+	// perform operation
+
+	switch (op)
+	
+	if ( (g_CurrentTotal + len) > g_TotalAllowable ) {
+		 mutex_unlock (&devLock);
+		return -EAGAIN;  //reject message
+
+	}
+	
+	//release lock
+ 	mutex_unlock (&devLock);
+	return len;
+
+} //end do_count_under_lock
+
+
+/********************************************************************************/
+/* device_write -	Called when a process attempts to write to a device 	 	*/
+/* 																				*/
+/********************************************************************************/ 
 static ssize_t device_write(struct file *filp, const char *buff, size_t len, loff_t * off)
 {
-	printk(KERN_ALERT "deviceMessaging: I am in device_write.\n");
-	return 0;
-}
+	char* ptr_NewMsg;
+
+	//reject if user is trying to write a message longer than 4k
+	if ( (len < 1) | (len > 4*K) ) {
+		return -EINVAL;
+	}
+
+	/*decide whether we have space to add the message to the queue */
+	 mutex_lock (&devLock);
+	
+	if ( (g_CurrentTotal + len) > g_TotalAllowable ) {
+		 mutex_unlock (&devLock);
+		return -EAGAIN;  //reject message
+
+	}
+
+	// we are committed to adding so update size of queue
+	g_CurrentTotal = g_CurrentTotal + len;
+ 	mutex_unlock (&devLock); // unlock to allow other users to continue whilst we prepare the list entry
+
+	// get space to store message
+	ptr_NewMsg = kmalloc(len, GFP_KERNEL); 	
+
+	if (!ptr_NewMsg) {
+		return -ENOMEM; // can't add an element if no memory
+	}
+
+
+	//prepare list entry
+
+//get space for list entry AND REMEMBER TO CHECK THAT KMALLOC WORKED
+
+// update pointers to add message to tail of queue
+
+	// reaquire lock in order to modify the list
+	mutex_lock (&devLock);
+
+	// add to tail of list and modify tail pointer
+printk(KERN_INFO "Message of length %i added to queue/n", len);
+	
+	mutex_unlock (&devLock);
+	return len;  //return bytes written
+	
+
+} //end device_write
