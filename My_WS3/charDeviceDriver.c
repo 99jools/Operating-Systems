@@ -7,7 +7,8 @@
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <asm/uaccess.h>	/* for put_user */
-#include <charDeviceDriver.h>
+#include "charDeviceDriver.h"
+#include "ioctl.h"
 
 
 MODULE_LICENSE("GPL");
@@ -16,16 +17,16 @@ MODULE_LICENSE("GPL");
 /* Variable declarations														*/
 /********************************************************************************/
 DEFINE_MUTEX  (devLock);
-static int currentMaxTotal = 
+//static int currentMaxTotal = 0;
 
 
 /********************************************************************************/
 /* ioctl  -  called when proc file is written to with ioctl command				*/
 /********************************************************************************/
+
 static long device_ioctl(struct file *file,	/* see include/linux/fs.h */
 		 unsigned int ioctl_num,	/* number and param for ioctl */
-		 unsigned long ioctl_param)
-{
+		 unsigned long ioctl_param)	{
 
 	/* 
 	 * Switch according to the ioctl called 
@@ -34,7 +35,7 @@ static long device_ioctl(struct file *file,	/* see include/linux/fs.h */
 	    printk(KERN_INFO "charDeviceDriver: I am in ioctl with parameter SET_MAX_SIZE/n");
 
 	/* check that I am able to assign new Max Size */
-	/* if ioctl_param < currentMaxTotal or ioctl_param < currentTotalSize
+	/* if ioctl_param < currentMaxTotal or ioctl_param < currentTotalSize */
 
 	  
 	    return 0; //success
