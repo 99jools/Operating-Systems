@@ -6,8 +6,8 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/fs.h>
-#include <asm/uaccess.h>	/* for put_user */
-#include "charDeviceDriver.h"
+
+#include "deviceMessaging.h"
 #include "ioctl.h"
 
 
@@ -32,7 +32,7 @@ static long device_ioctl(struct file *file,	/* see include/linux/fs.h */
 	 * Switch according to the ioctl called 
 	 */
 	if (ioctl_num == SET_MAX_SIZE) {
-	    printk(KERN_INFO "charDeviceDriver: I am in ioctl with parameter SET_MAX_SIZE/n");
+	    printk(KERN_INFO "deviceMessaging: I am in ioctl with parameter SET_MAX_SIZE/n");
 
 	/* check that I am able to assign new Max Size */
 	/* if ioctl_param < currentMaxTotal or ioctl_param < currentTotalSize */
@@ -57,14 +57,14 @@ int init_module(void)
         Major = register_chrdev(0, DEVICE_NAME, &fops);
 
 	if (Major < 0) {
-	  printk(KERN_ALERT "charDeviceDriver: Registering char device failed with %d\n", Major);
+	  printk(KERN_ALERT "deviceMessaging: Registering char device failed with %d\n", Major);
 	  return Major;
 	}
 
 	//create an empty list of messages
 
 
-	printk(KERN_INFO "charDeviceDriver loaded - device assigned major number %d\n", Major);
+	printk(KERN_INFO "deviceMessaging loaded - device assigned major number %d\n", Major);
 	return SUCCESS;
 }
 
@@ -79,7 +79,7 @@ void cleanup_module(void)
 
 	/*  Unregister the device */
 	unregister_chrdev(Major, DEVICE_NAME);
-  	printk(KERN_INFO "charDeviceDriver: module unloaded\n");
+  	printk(KERN_INFO "deviceMessaging: module unloaded\n");
 }
 
 
@@ -91,26 +91,29 @@ void cleanup_module(void)
 
 
 /********************************************************************************/
-/* device_open -	Called when a process tries to open the device file, like 	*/
-/*					"cat /dev/mycharfile"										*/
-/********************************************************************************/ 
-
+/* device_open -  called when a process tries to open the device file		*/
+/********************************************************************************/
 static int device_open(struct inode *inode, struct file *file)
 {
     
-
-    printk(KERN_INFO "charDeviceDriver: in device_open\n");
-    return 0;
+   printk(KERN_INFO "deviceMessaging: am in device_open\n");
+   try_module_get(THIS_MODULE);
+    
+   return 0;
 }
 
 /********************************************************************************/
-/* device_close -	Called when a process tries to close the device file	 	*/
+/* device_release -  called when a process closes the device file		*/
 /********************************************************************************/
-
 static int device_release(struct inode *inode, struct file *file)
 {
+  	printk(KERN_INFO "deviceMessaging: am in device_release\n");
+	/* 
+	 * Decrement the usage count, or else once you opened the file, you'll
+	 * never get get rid of the module. 
+	 */
+	module_put(THIS_MODULE);
 
- 	printk(KERN_INFO "charDeviceDriver: in device_close\n");
 	return 0;
 }
 
@@ -130,7 +133,7 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 	int bytes_read = 0;
 
 
-   printk(KERN_INFO "charDeviceDriver: I am in device_read/n");
+   printk(KERN_INFO "deviceMessaging: I am in device_read/n");
 
 	/* 
 	 * Most read functions return the number of bytes put into the buffer
@@ -142,6 +145,6 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 static ssize_t
 device_write(struct file *filp, const char *buff, size_t len, loff_t * off)
 {
-	printk(KERN_ALERT "charDeviceDriver: I am in device_write.\n");
+	printk(KERN_ALERT "deviceMessaging: I am in device_write.\n");
 	return -EINVAL;
 }

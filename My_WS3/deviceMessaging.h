@@ -9,7 +9,7 @@ static ssize_t device_write(struct file *, const char *, size_t, loff_t *);
 static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned long);
 
 #define SUCCESS 0
-#define DEVICE_NAME "chardev"	/* Dev name as it appears in /proc/devices   */
+#define DEVICE_NAME "/dev/chardev"	
 #define BUF_LEN 4096			/* Max length of the message from the device */
 
 /* 
@@ -23,6 +23,7 @@ static int Major;				/* Major number assigned to our device driver */
 static struct file_operations fops = {
 	.read = device_read,
 	.write = device_write,
-	.unlocked_ioctl = device_ioctl
-
+	.open = device_open,
+	.unlocked_ioctl = device_ioctl,
+	.release = device_release
 };

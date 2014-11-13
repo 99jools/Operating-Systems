@@ -2,9 +2,9 @@ KERNELDIR=/lib/modules/`uname -r`/build
 #ARCH=i386
 #KERNELDIR=/usr/src/kernels/`uname -r`-i686
 
-MODULES = charDeviceDriver.ko 
+MODULES = deviceMessaging.ko 
 
-obj-m += charDeviceDriver.o 
+obj-m += deviceMessaging.o 
 
 all:	
 	make -C  $(KERNELDIR) M=$(PWD) modules
