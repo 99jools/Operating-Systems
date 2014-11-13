@@ -4,12 +4,12 @@ int init_module(void);
 void cleanup_module(void);
 static int device_open(struct inode *, struct file *);
 static int device_release(struct inode *, struct file *);
-sta'tic ssize_t device_read(struct file *, char *, size_t, loff_t *);
+static ssize_t device_read(struct file *, char *, size_t, loff_t *);
 static ssize_t device_write(struct file *, const char *, size_t, loff_t *);
 static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned long);
 
 #define SUCCESS 0
-#define DEVICE_NAME "/dev/chardev"	
+#define DEVICE_NAME "chardev"	
 #define BUF_LEN 4096			/* Max length of the message from the device */
 
 /* 

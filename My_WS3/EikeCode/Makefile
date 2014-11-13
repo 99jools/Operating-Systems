@@ -8,7 +8,7 @@ obj-m += charDeviceDriver.o
 PROGS = ioctl
 
 
-all: $(MODULES)  $(PROGS)
+all: 
 	make -C $(KERNELDIR) M=$(PWD) modules
 
 clean:
