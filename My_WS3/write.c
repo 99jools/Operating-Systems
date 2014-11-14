@@ -65,7 +65,7 @@ int main (int argc, char **argv) {
        }
        else
        {
-          printf("The write() call returned %d bytes written\n", result);
+          printf("The write() call returned %d bytes writen\n", result);
        }
 
     }

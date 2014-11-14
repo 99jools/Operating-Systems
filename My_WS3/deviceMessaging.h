@@ -34,7 +34,7 @@ static struct file_operations fops = {
 	.release = device_release
 };
 
-struct listitem {
+struct struct_Listitem {
 		struct list_head list;
 		char* ptr_msg;
 		size_t msglen;

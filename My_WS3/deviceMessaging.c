@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/slab.h>
+#include <linux/uaccess.h>
 #include "deviceMessaging.h"
 #include "ioctl.h"
 
@@ -21,12 +22,8 @@ DEFINE_MUTEX  (devLock);
 static int g_TotalAllowable = 2 * K * K;
 static int g_CurrentTotal = 0;	
 
-struct listitem {
-		struct list_head list;
-		char* ptr_msg;
-		size_t msglen;
-	}; // structure for a single item in msg queue
 
+LIST_HEAD(msgQueue); // creates and initialises message queue
 
 
 /********************************************************************************/
@@ -68,13 +65,6 @@ int init_module(void)
 	  printk(KERN_ALERT "deviceMessaging: Registering char device failed with %d\n", Major);
 	  return Major;
 	}
-
-//create an empty list of messages
-	struct listitem s_MsgQueue;
-	INIT_LIST_HEAD(&s_MsgQueue.list);  
-		/* used this version to see what is happening - could have declared this with 
-	 	* LIST_HEAD(s_MsgQueue); which declares and initializes the list
-	 	*/
 
 	printk(KERN_INFO "deviceMessaging loaded - device assigned major number %d\n", Major);
 	return SUCCESS;
@@ -174,12 +164,6 @@ int do_count_under_lock(int op, size_t len){
 		g_CurrentTotal = g_CurrentTotal - len;
 		rc = SUCCESS;
 		break; 
-
-	case (ISZERO):
-		if (0==g_CurrentTotal) {
-			rc = TRUE;
-		}		
-		break;
 	}
 
 	
@@ -196,7 +180,8 @@ int do_count_under_lock(int op, size_t len){
 /********************************************************************************/ 
 static ssize_t device_write(struct file *filp, const char *buff, size_t len, loff_t * off)
 {
-	char* ptr_NewMsg;
+	char* ptr_NewMsg;  
+	struct struct_Listitem* ptr_NewListitem;  
 	
 	//reject if user is trying to write a message longer than 4k
 	if ( (len < 1) | (len > 4*K) ) {
@@ -222,15 +207,16 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
   	}
 
 	//get space for new list entry 
-	ptr_newitem = (struct listitem*) kmalloc (sizeof (struct listitem), GFP_KERNEL);	
-	if (!ptr_newitem) {
+	ptr_NewListitem = (struct struct_Listitem*) kmalloc (sizeof (struct struct_Listitem), GFP_KERNEL);	
+	if (!ptr_NewListitem) {
 		do_count_under_lock(DECREMENT,len);  
 		return -ENOMEM; // can't add list item
 	}
 
 	// set up list item data
-	ptr_newitem->msg = ptr_NewMsg;
-	ptr_newitem->msglen = len;
+	ptr_NewListitem->ptr_msg = ptr_NewMsg;
+	ptr_NewListitem->msglen = len;
+	INIT_LIST_HEAD(&ptr_NewListitem->list);  
 
 	/* NOW WE ARE GOING TO ADD IT TO THE LIST */
 
@@ -239,7 +225,8 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
 
 	// add to tail of list and modify tail pointer
 
-	list_add_tail(
+	list_add_tail(&ptr_NewListitem->list, &msgQueue);
+
 	printk(KERN_INFO "Message of length %zd added to queue\n", len);
 	
 	mutex_unlock (&devLock);
