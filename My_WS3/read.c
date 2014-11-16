@@ -7,8 +7,7 @@
 #include <errno.h>
 #include <string.h>
 #include <fcntl.h>
-
-#define BUFFERSIZE 16384
+#include <time.h>
 
 int main (int argc, char **argv) {
     
@@ -16,10 +15,13 @@ int main (int argc, char **argv) {
     int gap, length;
     int fd;
     int result;
-    char buf[BUFFERSIZE];
+    char buf[16384];
+    int Seq;
+    
+    srand(time(NULL));
     
     if (argc != 3) {
-	fprintf (stderr, "Usage: read <millseconds-between-reads (1-10000)> <read-size-bytes (1-%lu)>\n", sizeof(buf));
+	fprintf (stderr, "Usage: read <millseconds-between-reads (1-10000)> <read-size-bytes (8-%lu)>\n", sizeof(buf));
 	fprintf (stderr, "E.g.: read 1000 4096\n");
 	exit (1);
     }
@@ -33,7 +35,7 @@ int main (int argc, char **argv) {
 	exit (1);
     }
 
-    if((length<1)||(length>sizeof(buf)))
+    if((length<8)||(length>sizeof(buf)))
     {
 	fprintf (stderr, "Invalid value for <read-size-bytes>(%s)\n", argv[1]);
 	exit (1);
@@ -50,24 +52,29 @@ int main (int argc, char **argv) {
 
     while(1)
     {
-       usleep(1000*gap);
-    
+       usleep((1000*gap)+(rand()&0xFF));
+
        result = read(fd, buf, length);
 
        if(result<0)
        {
           printf("The read() call returned error: %s\n", strerror(errno));
        }
-       else
+       else if (result >= 8)
        {
-          printf("The read() call returned %d bytes read\n", result);
+	  Seq = *((int *)(buf));
+          printf("The read() call returned %d bytes read: seq %d\n", result, Seq);
        }
+	else
+	{
+          printf("The read() call returned %d bytes read\n", result);
+	}
     }
 
     return 0;
 }
 
-    
+      
     
 
 	

@@ -7,8 +7,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
-
-#define BUFFERSIZE 16384
+#include <time.h>
 
 int main (int argc, char **argv) {
     
@@ -16,8 +15,10 @@ int main (int argc, char **argv) {
     int gap, length;
     int fd;
     int result;
-    char buf[BUFFERSIZE];
-    int i;
+    char buf[16384];
+    int Seq = 1;
+
+    srand(time(NULL));
     
     if (argc != 3) {
 	fprintf (stderr, "Usage: write <millseconds-between-writes (1-10000)> <write-size-bytes (1-%lu)>\n", sizeof(buf));
@@ -25,7 +26,6 @@ int main (int argc, char **argv) {
 	exit (1);
     }
 
-    
     gap  = atoi(argv[1]);
     length  = atoi(argv[2]);
 
@@ -35,7 +35,7 @@ int main (int argc, char **argv) {
 	exit (1);
     }
 
-    if((length<1)||(length>sizeof(buf)))
+    if((length<0)||(length>sizeof(buf)))
     {
 	fprintf (stderr, "Invalid value for <write-size-bytes>(%s)\n", argv[2]);
 	exit (1);
@@ -50,14 +50,14 @@ int main (int argc, char **argv) {
 	exit (1);
     }
 
-    for (i = 0; i < BUFFERSIZE; i++) {
-	buf[i] = i %256;
-    }
+    memset(buf, 0, sizeof(buf));
 
     while(1)
     {
-       usleep(1000*gap);
-    
+       usleep((1000*gap)+(rand()&0xFF));
+
+       *((int *)(buf)) = Seq++;
+
        result = write(fd, buf, length);
        if(result<0)
        {
@@ -65,7 +65,7 @@ int main (int argc, char **argv) {
        }
        else
        {
-          printf("The write() call returned %d bytes writen\n", result);
+          printf("The write() call returned %d bytes written\n", result);
        }
 
     }

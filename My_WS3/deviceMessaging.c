@@ -77,7 +77,9 @@ void cleanup_module(void)
 {
 
 	/* free the list */
-//	clear_list();
+	//need to traverse the list and free the space as I go	
+
+
 
 	/*  Unregister the device */
 	unregister_chrdev(Major, DEVICE_NAME);
@@ -123,18 +125,42 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 			   size_t length,	/* length of the buffer     */
 			   loff_t * offset)
 {
-	/*
-	 * Number of bytes actually written to the buffer 
-	 */
-	int bytes_read = 0;
+
+	int bytes_read = 0;  
+	list_head* ptr_first;
+	struct struct_Listitem* ptr_RetrievedListitem;
+
+	/* lock queue, remove first item, decrement count and unlock */ 
+	mutex_lock (&devLock);
+
+	if (list_empty(&msgQueue) {
+		//list is empty
+		mutex_unlock (&devLock);
+		return -EAGAIN;  //nothing to read
+	}
+
+	ptr_first = list_first(&msgQueue);
+	ptr_RetreivedListitem = container_of(ptr_first));
+	list_del(ptr_first);
+
+	mutex_unlock (&devLock);
+
+	/* process retrieved item to decide how many bytes we are going to write to user */ 
+
+	bytes_read = (length < ptr_RetrievedListitemptr->msglen ) ? length : ptr_RetrievedListitemptr->msglen;
 
 
-   printk(KERN_INFO "deviceMessaging: I am in device_read\n");
+	/* copy to user buffer and check return code */
+	if (copy_from_user (buff, ptr_RetrievedListitem->ptr_msg, bytes_read) != 0) { 
+    	return -EFAULT;
+  	}
 
-	/* 
-	 * Most read functions return the number of bytes put into the buffer
-	 */
-	return bytes_read;
+
+	/* free memory  */
+	kfree(ptr_RetrievedListitem->ptr_msg);  // free memory for message
+	kfree(ptr_RetrievedListitem);			// free memory for list item
+
+	return bytes_read;  /* will return smaller of length of message or length of buffer */
 }
 
 /********************************************************************************/
@@ -224,11 +250,8 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
 	mutex_lock (&devLock);
 
 	// add to tail of list and modify tail pointer
-
 	list_add_tail(&ptr_NewListitem->list, &msgQueue);
 
-	printk(KERN_INFO "Message of length %zd added to queue\n", len);
-	
 	mutex_unlock (&devLock);
 	return len;  //return bytes written
 	
