@@ -4,26 +4,14 @@ KERNELDIR=/lib/modules/`uname -r`/build
 
 
 MODULES = deviceMessaging.ko 
-APPS = ioctl read write
 
 obj-m += deviceMessaging.o 
 
-all:	$(APPS)
+all:	
 	make -C  $(KERNELDIR) M=$(PWD) modules
 	 
-
-ioctl: ioctl.c
-	gcc  -Wall -Werror -pthread -D _GNU_SOURCE -o ioctl ioctl.c
-
-read: read.c
-	gcc  -Wall -Werror -pthread -D _GNU_SOURCE -o read read.c
-
-write: write.c
-	gcc  -Wall -Werror -pthread -D _GNU_SOURCE -o write write.c
-
 clean:
 	make -C $(KERNELDIR) M=$(PWD) clean
-	$(RM) -f $(APPS) *~
 
 install:	
 	make -C $(KERNELDIR) M=$(PWD) modules_install

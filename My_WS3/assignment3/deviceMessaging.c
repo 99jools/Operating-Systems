@@ -5,7 +5,7 @@
 #include <linux/uaccess.h>
 #include <linux/list.h>
 #include "deviceMessaging.h"
-#include "ioctl.h"
+
 
 
 MODULE_LICENSE("GPL");
@@ -39,14 +39,13 @@ static long device_ioctl(struct file *file,	/* see include/linux/fs.h */
 
 	if ( (ioctl_param <= g_CurrentTotal) ) {
 		mutex_unlock (&devLock);
-		printk(KERN_INFO "Current total is: %i,  Current maximum: %i Size requested %lx reset rejected\n",g_CurrentTotal, 					g_TotalAllowable,ioctl_param);
 		return -EINVAL;	
 	}
 
 	// otherwise do reset 
 	g_TotalAllowable = ioctl_param;
 	mutex_unlock (&devLock);
-	printk(KERN_INFO "Current total is: %i,  New maximum: %i Size requested %lx reset accepted\n",g_CurrentTotal, 					g_TotalAllowable,ioctl_param);
+
    	return 0;
 }
 
@@ -70,16 +69,23 @@ int init_module(void)
 /********************************************************************************/
 /* cleanup_module -  called when the module is unloaded							*/
 /********************************************************************************/
-void cleanup_module(void)
-{
-
-	/* free the list */
-	//need to traverse the list and free the space as I go	
-
-
+void cleanup_module(void) {
+	
+	struct struct_Listitem* ptr_RetrievedListitem;
+	struct struct_Listitem* ptr_temp;
 
 	/*  Unregister the device */
 	unregister_chrdev(Major, DEVICE_NAME);
+
+	//need to traverse the list and free the space as I go	
+    list_for_each_entry_safe(ptr_RetrievedListitem, ptr_temp, &msgQueue, list) {
+    	list_del(&(ptr_RetrievedListitem->list));
+
+		printk(KERN_INFO "Freeing list item containing msg %x\n", *(ptr_RetrievedListitem->ptr_msg));
+    	kfree(ptr_RetrievedListitem);
+    }
+
+
   	printk(KERN_INFO "deviceMessaging: module unloaded\n");
 }
 
@@ -124,7 +130,6 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 {
 
 	int bytes_read = 0;  
-//	struct list_head* ptr_first;
 	struct struct_Listitem* ptr_RetrievedListitem;
 
 	/* lock queue, remove first item, decrement count and unlock */ 
@@ -137,7 +142,6 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 	}
 
 	ptr_RetrievedListitem = list_first_entry(&msgQueue, struct struct_Listitem,list);
-//	ptr_RetrievedListitem = container_of(ptr_first,struct struct_Listitem,list);
 	list_del(&ptr_RetrievedListitem->list);
 	g_CurrentTotal = g_CurrentTotal - ptr_RetrievedListitem->msglen;
 	mutex_unlock (&devLock);

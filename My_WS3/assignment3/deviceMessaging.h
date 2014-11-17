@@ -16,7 +16,7 @@ static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
 #define INCREMENT 1
 #define DECREMENT -1
 #define ISZERO 0
-
+#define SET_MAX_SIZE 0
 
 /* 
  * Global variables are declared as static, so are global within the file. 
