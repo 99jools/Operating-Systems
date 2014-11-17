@@ -1,13 +1,9 @@
-/*
- *  chardev.c: Creates a read-only char device that says how many times
- *  you've read from the dev file
- */
-
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/list.h>
 #include "deviceMessaging.h"
 #include "ioctl.h"
 
@@ -34,23 +30,24 @@ static long device_ioctl(struct file *file,	/* see include/linux/fs.h */
 		 unsigned int ioctl_num,	/* number and param for ioctl */
 		 unsigned long ioctl_param)	{
 
-	/* 
-	 * Switch according to the ioctl called 
-	 */
-	if (ioctl_num == SET_MAX_SIZE) {
-	    printk(KERN_INFO "deviceMessaging: I am in ioctl with parameter SET_MAX_SIZE\n");
-
-	/* check that I am able to assign new Max Size */
-	/* if ioctl_param < currentMaxTotal or ioctl_param < currentTotalSize */
-	  
-	    return 0; //success
+	if ( !(ioctl_num == SET_MAX_SIZE)) {
+ 		return -EINVAL;  // no valid operation requested
 	}
 
-	else {
-	    /* no operation defined - return failure */
-	    return -EINVAL;
+	/* about to modify global variable so need lock */
+	mutex_lock (&devLock);
 
+	if ( (ioctl_param <= g_CurrentTotal) ) {
+		mutex_unlock (&devLock);
+		printk(KERN_INFO "Current total is: %i,  Current maximum: %i Size requested %lx reset rejected\n",g_CurrentTotal, 					g_TotalAllowable,ioctl_param);
+		return -EINVAL;	
 	}
+
+	// otherwise do reset 
+	g_TotalAllowable = ioctl_param;
+	mutex_unlock (&devLock);
+	printk(KERN_INFO "Current total is: %i,  New maximum: %i Size requested %lx reset accepted\n",g_CurrentTotal, 					g_TotalAllowable,ioctl_param);
+   	return 0;
 }
 
 
@@ -127,31 +124,31 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 {
 
 	int bytes_read = 0;  
-	list_head* ptr_first;
+//	struct list_head* ptr_first;
 	struct struct_Listitem* ptr_RetrievedListitem;
 
 	/* lock queue, remove first item, decrement count and unlock */ 
 	mutex_lock (&devLock);
 
-	if (list_empty(&msgQueue) {
-		//list is empty
+	if (list_empty(&msgQueue) ){
+		//list is empty 
 		mutex_unlock (&devLock);
 		return -EAGAIN;  //nothing to read
 	}
 
-	ptr_first = list_first(&msgQueue);
-	ptr_RetreivedListitem = container_of(ptr_first));
-	list_del(ptr_first);
-
+	ptr_RetrievedListitem = list_first_entry(&msgQueue, struct struct_Listitem,list);
+//	ptr_RetrievedListitem = container_of(ptr_first,struct struct_Listitem,list);
+	list_del(&ptr_RetrievedListitem->list);
+	g_CurrentTotal = g_CurrentTotal - ptr_RetrievedListitem->msglen;
 	mutex_unlock (&devLock);
 
 	/* process retrieved item to decide how many bytes we are going to write to user */ 
 
-	bytes_read = (length < ptr_RetrievedListitemptr->msglen ) ? length : ptr_RetrievedListitemptr->msglen;
+	bytes_read = (length < ptr_RetrievedListitem->msglen ) ? length : ptr_RetrievedListitem->msglen;
 
 
 	/* copy to user buffer and check return code */
-	if (copy_from_user (buff, ptr_RetrievedListitem->ptr_msg, bytes_read) != 0) { 
+	if (copy_to_user (buffer, ptr_RetrievedListitem->ptr_msg, bytes_read) != 0) { 
     	return -EFAULT;
   	}
 
@@ -242,6 +239,8 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
 	// set up list item data
 	ptr_NewListitem->ptr_msg = ptr_NewMsg;
 	ptr_NewListitem->msglen = len;
+
+
 	INIT_LIST_HEAD(&ptr_NewListitem->list);  
 
 	/* NOW WE ARE GOING TO ADD IT TO THE LIST */
