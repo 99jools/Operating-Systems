@@ -65,23 +65,9 @@ MODULE_LICENSE("GPL");
 
 
 /********************************************************************************/
-/* check_rules - 	used by firewall extension 									*/
-/*			searches list to see if packet allowed								*/
+/*                      							*/
 /********************************************************************************/
-int check_rules (int dest){
 
-	int action;
-
-	/*  check against rules list to see in found */
-	down_read (&list_sem); /* set semaphore for reading */
-
-	action = docheck (dest); /* do actual checking of list */
-
-	up_read (&list_sem); /* unlock reading */
-    printk (KERN_INFO "Docheck result is %i\n", action);
-	return action;
-
-} //end check rules
 
 /********************************************************************************/
 /* FirewallExtensionHook - applies firewall extension							*/
@@ -98,7 +84,7 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
     struct mm_struct *mm;
     struct sock *sk;
 
-ip = ip_hdr (skb);
+	ip = ip_hdr (skb);
     if (!ip) {
 	printk (KERN_INFO "firewall: Cannot get IP header!\n!");
     }
@@ -107,26 +93,26 @@ ip = ip_hdr (skb);
     if (ip->protocol == IPPROTO_TCP) { 
 	//	printk (KERN_INFO "TCP-packet received\n");
 
-    /* get the tcp-header for the packet */
-	tcp = skb_header_pointer(skb, ip_hdrlen(skb), sizeof(struct tcphdr), &_tcph);
-	if (!tcp) {
-	    printk (KERN_INFO "Could not get tcp-header!\n");
-	    return NF_ACCEPT;
-       }
+		/* get the tcp-header for the packet */
+		tcp = skb_header_pointer(skb, ip_hdrlen(skb), sizeof(struct tcphdr), &_tcph);
+		if (!tcp) {
+			printk (KERN_INFO "Could not get tcp-header!\n");
+			return NF_ACCEPT;
+		}
 
-       if (tcp->syn && tcp->ack) {
+		if (tcp->syn && tcp->ack) {
 	
-	   printk (KERN_INFO "firewall: Received SYN-ACK-packet \n");
-	   printk (KERN_INFO "firewall: Source address = %u.%u.%u.%u\n", NIPQUAD(ip->saddr));
-	   printk (KERN_INFO "firewall: destination port = %d\n", htons(tcp->dest)); 
-	   printk (KERN_INFO "firewall: source port = %d\n", htons(tcp->source)); 
+			printk (KERN_INFO "firewall: Received SYN-ACK-packet \n");
+			printk (KERN_INFO "firewall: Source address = %u.%u.%u.%u\n", NIPQUAD(ip->saddr));
+			printk (KERN_INFO "firewall: destination port = %d\n", htons(tcp->dest)); 
+			printk (KERN_INFO "firewall: source port = %d\n", htons(tcp->source)); 
 		
-	   if (htons (tcp->source) == 80) {
-	       return NF_DROP;
-	   }
-       }
-    }
-    return NF_ACCEPT;	
+		/* NEED TO PUT THE CALL TO THE MONITORING CODE HERE */
+
+		} // end if syn-ack packet
+	}
+
+	return NF_ACCEPT;	
 
 } //end FirewallExtensionHook
 
