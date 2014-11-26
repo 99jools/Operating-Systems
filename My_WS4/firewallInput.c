@@ -46,16 +46,25 @@ MODULE_LICENSE("GPL");
 
 	static struct proc_dir_entry *Our_Proc_File;
 
-	struct listitem {
-		int portno;
-		char str_progpath[257];
-		struct listitem* ptr_nextInList;	
+	struct struct_Listitem {
+		struct list_head list;
+		int destPort;
+		int nextIndex;
+		int srcPort[32];
+		int srcAddr[32];
 	}; /* structure for a single item in rules list */
+
+	LIST_HEAD(portList); // creates and initialises the port list
+
+
 
 
 /********************************************************************************/
 /* 																				*/
 /********************************************************************************/
+ 
+
+
 
 
 /********************************************************************************/
@@ -124,8 +133,9 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 /********************************************************************************/
 /* add_entry - adds line from user space to the list kept in kernel space		*/
 /********************************************************************************/
-int add_entry (struct rule* ptr_ruleToAdd, int count) {
-	struct listitem* ptr_newitem;	
+int add_entry (int portNo) {
+
+	struct struct_Listitem* ptr_NewListitem; 
 
   /* allocate memory for new list element */
 
@@ -148,7 +158,7 @@ int add_entry (struct rule* ptr_ruleToAdd, int count) {
 	// update semaphore
   	up_write (&list_sem);
 
-	return count;
+
 
 } //end add_entry
 
@@ -207,7 +217,54 @@ int show_table (int count) {
 
 ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, size_t count, loff_t *ppoffset) {
 
-	struct rule 	kernelRule;   
+  	char* ptr_kernelBuffer; /* the kernel buffer */
+
+	int items = 0;
+	int portNo;
+	const char str_delim[2] = ",";
+
+	/* get space to copy the port from the user (remembering to handle any kmalloc error) */
+	ptr_kernelBuffer = kmalloc (count, GFP_KERNEL); 
+   
+	if (!ptr_kernelBuffer) {
+	return -ENOMEM;
+	} //error allocating memory
+
+
+	/* copy data from user space */
+	if (copy_from_user (ptr_kernelBuffer, buffer, count)) { 
+		kfree (ptr_kernelBuffer);
+		return -EFAULT; //error copying from user
+	}
+
+	/* validate the input data and create list of port monitoring items*/
+
+	// get the first port
+	portNo = strtol(strtok(ptr_kernelBuffer, str_delim));  //NEED SOME ERROR CHECKING HERE
+
+	while ( (items < 64) & strtok(ptr_kernelBuffer, str_delim) ){  //while we still have ports in list
+
+		// add this port to the list
+		add_entry(portNo);
+
+		// increment the count
+		items++;
+
+		//get next port no
+		portNo = strtol(strtok(NULL, str_delim));
+
+
+
+
+
+
+
+
+
+
+	} //end while
+
+
 
 	if (sizeof(struct rule) != count ) {
 		//we have a problem!
@@ -236,7 +293,28 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 		return -EFAULT;
 	} //end switch
 
+
+
+	kfree (ptr_kernelBuffer);
+	return count;  // return amount of data written to kernel
 } //end kernelWRite
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -278,6 +356,7 @@ static struct nf_hook_ops firewallExtension_ops = {
 const struct file_operations File_Ops_4_Our_Proc_File = {
 	.owner 	= THIS_MODULE,
 	.write 	= kernelWrite,
+	.read   = kernelRead,
 	.open 	= procfs_open,
 	.release = procfs_close,
 };
