@@ -14,7 +14,7 @@
 #include <linux/slab.h>
 #include <asm/uaccess.h>
 #include <linux/list.h>
-#include "kernel_comms.h"
+
 
  
 
@@ -22,8 +22,7 @@ MODULE_AUTHOR ("Julie Sewards <jrs300@student.bham.ac.uk>");
 MODULE_DESCRIPTION ("FIrewall Input module") ;
 MODULE_LICENSE("GPL");
 
-//#define BUFFERLENGTH 256
-
+#define BUFFERLENGTH 512
 
 #define PROC_ENTRY_FILENAME "iptraffic"
 
@@ -48,10 +47,11 @@ MODULE_LICENSE("GPL");
 
 	struct struct_Listitem {
 		struct list_head list;
-		int destPort;
+		int remotePort;
 		int nextIndex;
-		int srcPort[32];
-		int srcAddr[32];
+		int remoteAddr[32];
+		int localPort[32];
+		int full;
 	}; /* structure for a single item in rules list */
 
 	LIST_HEAD(portList); // creates and initialises the port list
@@ -135,29 +135,7 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 /********************************************************************************/
 int add_entry (int portNo) {
 
-	struct struct_Listitem* ptr_NewListitem; 
-
-  /* allocate memory for new list element */
-
-	ptr_newitem = (struct listitem*) kmalloc (sizeof (struct listitem), GFP_KERNEL);
-	if (!ptr_newitem) {
-		return -ENOMEM; // can't add an element if no memory
-	}
-
-  	/* prepare list item */
-	ptr_newitem->portno = ptr_ruleToAdd->portno;
-	strcpy(ptr_newitem->str_progpath,ptr_ruleToAdd->str_program);
-
-  	/* protect list access via semaphore */
-  	down_write (&list_sem);
-
-	//add to head of list
-	ptr_newitem->ptr_nextInList = ptr_headOfList;
-	ptr_headOfList = ptr_newitem;
-
-	// update semaphore
-  	up_write (&list_sem);
-
+	printk (KERN_INFO "I a\n" );
 
 
 } //end add_entry
@@ -167,49 +145,38 @@ int add_entry (int portNo) {
 /* clear_list - deletes all elements from current list and frees memory			*/
 /********************************************************************************/
 void clear_list (void) {
-	struct listitem* ptr_temp;	
+	
+	struct struct_Listitem* ptr_RetrievedListitem;
+	struct struct_Listitem* ptr_temp;
 
-  	/* lock list for writing */
-  	down_write (&list_sem);
+	//need to traverse the list and free the space as I go	
+    	list_for_each_entry_safe(ptr_RetrievedListitem, ptr_temp, &msgQueue, list) {
+    		list_del(&(ptr_RetrievedListitem->list));
 
-	while (NULL != ptr_headOfList) {
-		ptr_temp = ptr_headOfList->ptr_nextInList;  //temporarily store pointer
-		kfree(ptr_headOfList);
-		ptr_headOfList = ptr_temp;		//head of list now points to next item
-	}
-
-	//release write lock
-  	up_write (&list_sem);
-
+		printk(KERN_INFO "Freeing list item containing msg %x\n", *(ptr_RetrievedListitem->ptr_msg));
+    		kfree(ptr_RetrievedListitem);
+    	}
 	printk (KERN_INFO "List freed\n" );
 
 } //end clear_list
 
 /********************************************************************************/
-/* show_table - displays the kernel table - uses printk for simplicity			*/
+/* kernelRead - reads the monitoring data and writes it to the proc file		*/
 /********************************************************************************/
-int show_table (int count) {
+ssize_t kernelRead (struct file *fp,
+		 char __user *buffer,  /* the destination buffer */
+		 size_t buffer_size,  /* size of buffer */
+		 loff_t *offset  /* offset in destination buffer */
+	        ) {
+  int retval = 0;  /* number of bytes read; return value for function */
 
-	struct listitem* ptr_currentitem;
 
-	/* set semaphore for reading */
-	down_read (&list_sem); 
 
-	ptr_currentitem = ptr_headOfList;
-	while (ptr_currentitem) {
 
-		//print the current item in the list
-		printk (KERN_INFO "kernelWrite:The next entry is  portno %i  program  %s\n", ptr_currentitem->portno, ptr_currentitem->str_progpath);
 
-		//update the pointer to point to the next item
-		ptr_currentitem = ptr_currentitem->ptr_nextInList; 
-
-	}
-
-	up_read (&list_sem); /* unlock reading */
-
-	return count;
-} //end show_table
+  printk (KERN_INFO "procfile read returned %d byte\n", retval);
+  return retval;
+}
 
 /********************************************************************************/
 /* kernelWrite - reads data from the proc-buffer and writes it into the kernel	*/
@@ -217,14 +184,21 @@ int show_table (int count) {
 
 ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, size_t count, loff_t *ppoffset) {
 
-  	char* ptr_kernelBuffer; /* the kernel buffer */
+  	char* ptr_KernelBuffer; /* the kernel buffer */
 
 	int items = 0;
-	int portNo;
 	const char str_delim[2] = ",";
+	char* ptr_NextTok;
+	int portNo;
+
+	/* check length of input buffer to avoid tying up kernel trying to allocate excessive amounts of memory */
+	if ( (count < 1) || (count > BUFFERLENGTH ) ) {
+		return -EINVAL;		
+	}
+
 
 	/* get space to copy the port from the user (remembering to handle any kmalloc error) */
-	ptr_kernelBuffer = kmalloc (count, GFP_KERNEL); 
+	ptr_kernelBuffer = kmalloc (count+1, GFP_KERNEL); 
    
 	if (!ptr_kernelBuffer) {
 	return -ENOMEM;
@@ -232,17 +206,37 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 
 
 	/* copy data from user space */
-	if (copy_from_user (ptr_kernelBuffer, buffer, count)) { 
-		kfree (ptr_kernelBuffer);
+	if (copy_from_user (ptr_KernelBuffer, buffer, count)) { 
+		kfree (ptr_KernelBuffer);
 		return -EFAULT; //error copying from user
 	}
+	
+	// make sure of null terminated string
+	*(ptr_KernelBuffer + count) = '\0';
 
-	/* validate the input data and create list of port monitoring items*/
+	//create a new list
+	LIST_HEAD(newList); // creates and initialises a new port list
 
-	// get the first port
-	portNo = strtol(strtok(ptr_kernelBuffer, str_delim));  //NEED SOME ERROR CHECKING HERE
+	// set pointer to first token
+	ptr_NextTok = ptr_KernelBuffer;
 
-	while ( (items < 64) & strtok(ptr_kernelBuffer, str_delim) ){  //while we still have ports in list
+
+
+	/* validate the input data and add to list of port monitoring items*/
+	while (ptr_NextTok != NULL) ){  
+
+		if ( (strlen(ptr_NextTok) < 1) || (64==items) )  {
+			kfree(ptr_KernelBuffer);
+			return -EINVAL;  // zero length token or too many ports specified
+		} 
+
+		
+		// convert token to integer
+ 		if (!kstrtoui(ptr_NextTok, 10, &portNo){
+			kfree(ptr_KernelBuffer);
+			return -EINVAL;
+
+		}
 
 		// add this port to the list
 		add_entry(portNo);
@@ -250,72 +244,27 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 		// increment the count
 		items++;
 
-		//get next port no
-		portNo = strtol(strtok(NULL, str_delim));
-
-
-
-
-
-
-
-
-
+		//get next token
+		ptr_NextTok = strsep(&ptr_NextTok, str_delim)); 
 
 	} //end while
 
+	if (64 == items) {
+		kfree(ptr_KernelBuffer);
+		return -EINVAL;  // more than 64 ports in list
+	}
 
+/********************* if we are here, we have created a list of ports - now it is time to make this the active list for monitoring */
 
-	if (sizeof(struct rule) != count ) {
-		//we have a problem!
-		return -EFAULT;
-	} 
-
-	/* copy rule from user space to kernel space  */
-  	if (copy_from_user (&kernelRule, ptr_userbuffer, sizeof(kernelRule))) { 
-    	return -EFAULT;
-  	}	
-
-	/* work out what is required based on op code */
-  
-	kernelRule.str_program[sizeof(kernelRule.str_program)-1] = '\0'; /* safety measure: ensure string termination */
-
-	switch (kernelRule.op) {
-	case ADD_ENTRY:
-		return  (add_entry(&kernelRule, count));
-	case SHOW_TABLE:
-		return show_table (count);
-	case NEW_LIST:
-		clear_list();
-		return  (add_entry(&kernelRule, count));
-	default: 
-		printk (KERN_INFO "kernelWrite: Illegal command %c \n", kernelRule.op);
-		return -EFAULT;
-	} //end switch
+	
 
 
 
+	/* all done - free the buffer and return bytes written */
 	kfree (ptr_kernelBuffer);
-	return count;  // return amount of data written to kernel
+	return count;  
+
 } //end kernelWRite
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 /********************************************************************************/
