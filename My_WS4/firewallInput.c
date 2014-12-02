@@ -14,6 +14,8 @@
 #include <linux/slab.h>
 #include <asm/uaccess.h>
 #include <linux/list.h>
+#include <linux/namei.h>
+
 
 
  
@@ -54,7 +56,7 @@ MODULE_LICENSE("GPL");
 		int full;
 	}; /* structure for a single item in rules list */
 
-	LIST_HEAD(portList); // creates and initialises the port list
+	 struct list_head portList; 
 
 
 
@@ -90,10 +92,9 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 
     struct tcphdr *tcp;
     struct tcphdr _tcph;
-    struct mm_struct *mm;
-    struct sock *sk;
+    struct iphdr *ip;
 
-	ip = ip_hdr (skb);
+    ip = ip_hdr (skb);
     if (!ip) {
 	printk (KERN_INFO "firewall: Cannot get IP header!\n!");
     }
@@ -102,26 +103,26 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
     if (ip->protocol == IPPROTO_TCP) { 
 	//	printk (KERN_INFO "TCP-packet received\n");
 
-		/* get the tcp-header for the packet */
-		tcp = skb_header_pointer(skb, ip_hdrlen(skb), sizeof(struct tcphdr), &_tcph);
-		if (!tcp) {
-			printk (KERN_INFO "Could not get tcp-header!\n");
-			return NF_ACCEPT;
-		}
+    /* get the tcp-header for the packet */
+	tcp = skb_header_pointer(skb, ip_hdrlen(skb), sizeof(struct tcphdr), &_tcph);
+	if (!tcp) {
+	    printk (KERN_INFO "Could not get tcp-header!\n");
+	    return NF_ACCEPT;
+       }
 
-		if (tcp->syn && tcp->ack) {
+       if (tcp->syn && tcp->ack) {
 	
-			printk (KERN_INFO "firewall: Received SYN-ACK-packet \n");
-			printk (KERN_INFO "firewall: Source address = %u.%u.%u.%u\n", NIPQUAD(ip->saddr));
-			printk (KERN_INFO "firewall: destination port = %d\n", htons(tcp->dest)); 
-			printk (KERN_INFO "firewall: source port = %d\n", htons(tcp->source)); 
+	   printk (KERN_INFO "firewall: Received SYN-ACK-packet \n");
+	   printk (KERN_INFO "firewall: Source address = %u.%u.%u.%u\n", NIPQUAD(ip->saddr));
+	   printk (KERN_INFO "firewall: destination port = %d\n", htons(tcp->dest)); 
+	   printk (KERN_INFO "firewall: source port = %d\n", htons(tcp->source)); 
 		
-		/* NEED TO PUT THE CALL TO THE MONITORING CODE HERE */
-
-		} // end if syn-ack packet
-	}
-
-	return NF_ACCEPT;	
+	   if (htons (tcp->source) == 80) {
+	       return NF_DROP;
+	   }
+       }
+    }
+    return NF_ACCEPT;	
 
 } //end FirewallExtensionHook
 
@@ -137,7 +138,7 @@ int add_entry (int portNo) {
 
 	printk (KERN_INFO "I a\n" );
 
-
+	return 0;
 } //end add_entry
 
 
@@ -150,10 +151,10 @@ void clear_list (void) {
 	struct struct_Listitem* ptr_temp;
 
 	//need to traverse the list and free the space as I go	
-    	list_for_each_entry_safe(ptr_RetrievedListitem, ptr_temp, &msgQueue, list) {
+    	list_for_each_entry_safe(ptr_RetrievedListitem, ptr_temp, &portList, list) {
     		list_del(&(ptr_RetrievedListitem->list));
 
-		printk(KERN_INFO "Freeing list item containing msg %x\n", *(ptr_RetrievedListitem->ptr_msg));
+		printk(KERN_INFO "Freeing list item containing port %i\n", ptr_RetrievedListitem->remotePort);
     		kfree(ptr_RetrievedListitem);
     	}
 	printk (KERN_INFO "List freed\n" );
@@ -174,6 +175,10 @@ ssize_t kernelRead (struct file *fp,
 
 
 
+
+
+
+
   printk (KERN_INFO "procfile read returned %d byte\n", retval);
   return retval;
 }
@@ -185,11 +190,12 @@ ssize_t kernelRead (struct file *fp,
 ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, size_t count, loff_t *ppoffset) {
 
   	char* ptr_KernelBuffer; /* the kernel buffer */
-
 	int items = 0;
 	const char str_delim[2] = ",";
 	char* ptr_NextTok;
 	int portNo;
+
+	struct list_head newList; //ok for list_head to be on stack as it is only needed temporarily */
 
 	/* check length of input buffer to avoid tying up kernel trying to allocate excessive amounts of memory */
 	if ( (count < 1) || (count > BUFFERLENGTH ) ) {
@@ -198,15 +204,15 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 
 
 	/* get space to copy the port from the user (remembering to handle any kmalloc error) */
-	ptr_kernelBuffer = kmalloc (count+1, GFP_KERNEL); 
+	ptr_KernelBuffer = kmalloc (count+1, GFP_KERNEL); 
    
-	if (!ptr_kernelBuffer) {
+	if (!ptr_KernelBuffer) {
 	return -ENOMEM;
 	} //error allocating memory
 
 
 	/* copy data from user space */
-	if (copy_from_user (ptr_KernelBuffer, buffer, count)) { 
+	if (copy_from_user (ptr_KernelBuffer, ptr_userbuffer, count)) { 
 		kfree (ptr_KernelBuffer);
 		return -EFAULT; //error copying from user
 	}
@@ -215,53 +221,47 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 	*(ptr_KernelBuffer + count) = '\0';
 
 	//create a new list
-	LIST_HEAD(newList); // creates and initialises a new port list
+	INIT_LIST_HEAD(&newList); 
 
-	// set pointer to first token
+	// set pointer to first token 
 	ptr_NextTok = ptr_KernelBuffer;
 
-
-
 	/* validate the input data and add to list of port monitoring items*/
-	while (ptr_NextTok != NULL) ){  
+	while (ptr_NextTok != NULL) {  
 
-		if ( (strlen(ptr_NextTok) < 1) || (64==items) )  {
+		if ( ( strlen(ptr_NextTok) < 1) || (64==items) )  {
 			kfree(ptr_KernelBuffer);
 			return -EINVAL;  // zero length token or too many ports specified
 		} 
 
-		
 		// convert token to integer
- 		if (!kstrtoui(ptr_NextTok, 10, &portNo){
+ 		if (!kstrtouint(ptr_NextTok, 10, &portNo) ){
 			kfree(ptr_KernelBuffer);
 			return -EINVAL;
-
 		}
 
-		// add this port to the list
+		// add this port to the listlear
 		add_entry(portNo);
 
 		// increment the count
 		items++;
 
 		//get next token
-		ptr_NextTok = strsep(&ptr_NextTok, str_delim)); 
+		ptr_NextTok = strsep(&ptr_NextTok, str_delim); 
 
 	} //end while
 
-	if (64 == items) {
-		kfree(ptr_KernelBuffer);
-		return -EINVAL;  // more than 64 ports in list
-	}
 
-/********************* if we are here, we have created a list of ports - now it is time to make this the active list for monitoring */
+
+/********************* if we are here, we have created a list of port monitoring structures
+	 - now it is time to make this the active list for monitoring */
 
 	
 
 
 
 	/* all done - free the buffer and return bytes written */
-	kfree (ptr_kernelBuffer);
+	kfree (ptr_KernelBuffer);
 	return count;  
 
 } //end kernelWRite
