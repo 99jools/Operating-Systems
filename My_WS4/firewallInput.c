@@ -12,10 +12,10 @@
 #include <net/tcp.h>
 #include <linux/proc_fs.h> 
 #include <linux/slab.h>
+#include <linux/spinlock.h>
 #include <asm/uaccess.h>
 #include <linux/list.h>
 #include <linux/namei.h>
-#include <linux/spinlock.h>
 
 
  
@@ -43,8 +43,6 @@ MODULE_LICENSE("GPL");
 
 	struct nf_hook_ops *reg;
 
-	spinlock_t my_lock = SPIN_LOCK_UNLOCKED;
-
 	static struct proc_dir_entry *Our_Proc_File;
 
 	struct struct_Listitem {
@@ -56,9 +54,9 @@ MODULE_LICENSE("GPL");
 		int full;
 	}; /* structure for a single item in rules list */
 
-	 struct list_head portList; 
+	struct list_head* ptr_PortList; //this ptr points to the currently active port list
 
-
+	spinlock_t my_lock = SPIN_LOCK_UNLOCKED;
 
 
 /********************************************************************************/
@@ -157,6 +155,24 @@ int add_entry (int portNo, struct list_head* ptr_NewList) {
 	return 0;
 } //end add_entry
 
+/********************************************************************************/
+/* clear_list - deletes all elements from current list and frees memory			*/
+/********************************************************************************/
+void clear_list (struct list_head* ptr_OldList) {
+	
+	struct struct_Listitem* ptr_RetrievedListitem;
+	struct struct_Listitem* ptr_temp;
+
+	//need to traverse the list and free the space as I go	
+	list_for_each_entry_safe(ptr_RetrievedListitem, ptr_temp, ptr_OldList, list) {
+		list_del(&(ptr_RetrievedListitem->list));
+
+	printk(KERN_INFO "Freeing list item containing port %i\n", ptr_RetrievedListitem->remotePort);
+		kfree(ptr_RetrievedListitem);
+	}
+	printk (KERN_INFO "List freed\n" );
+
+} //end clear_list
 
 /********************************************************************************/
 /* kernelRead - reads the monitoring data and writes it to the proc file		*/
@@ -191,9 +207,10 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 	const char str_delim[2] = ",";
 	char* ptr_NextTok;
 	int portNo;
+	struct list_head* ptr_NewList;
+	struct list_head* ptr_OldList;
 
-	struct list_head newList; //ok for list_head to be on stack as it is only needed temporarily */
-
+	
 	/* check length of input buffer to avoid tying up kernel trying to allocate excessive amounts of memory */
 	if ( (count < 1) || (count > BUFFERLENGTH ) ) {
 		return -EINVAL;		
@@ -217,10 +234,14 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 	// make sure of null terminated string
 	*(ptr_KernelBuffer + count) = '\0';
 
-	//create a new list
-	INIT_LIST_HEAD(&newList); 
+	//create a new list 
+	ptr_NewList = kmalloc(sizeof(struct list_head), GFP_KERNEL);
+	if (!ptr_NewList) {
+		return -ENOMEM;
+	} 
+	INIT_LIST_HEAD(ptr_NewList); //initialise list_head pointers
 
-	// set pointer to first token 
+	// set pointer to start of buffer
 	ptr_NextTok = ptr_KernelBuffer;
 
 	/* validate the input data and add to list of port monitoring items*/
@@ -252,12 +273,16 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 
 
 
-/********************* if we are here, we have created a list of port monitoring structures
+/* ******************** if we are here, we have created a list of port monitoring structures
 	 - now it is time to make this the active list for monitoring */
 	
-	void spin_lock(spinlock_t *lock);
-	portList = newList;
-	void spin_unlock(spinlock_t *lock);
+//	spin_lock(&my_lock);
+	ptr_OldList = ptr_PortList;
+	ptr_PortList = ptr_NewList;
+//	spin_unlock(&my_lock);
+
+	// clear the old list
+	clear_list();
 
 	/* all done - free the buffer and return bytes written */
 	kfree (ptr_KernelBuffer);
@@ -345,9 +370,6 @@ int init_module(void) {
 /********************************************************************************/
 void cleanup_module(void) {
 
-	struct struct_Listitem* ptr_RetrievedListitem;
-	struct struct_Listitem* ptr_temp;
-
 	nf_unregister_hook (&firewallExtension_ops); /* restore everything to normal */
   	printk(KERN_INFO "filewall extension: hook unregistered.\n");
 
@@ -355,12 +377,7 @@ void cleanup_module(void) {
   	printk(KERN_INFO "/proc/%s removed\n", PROC_ENTRY_FILENAME);  
 
   	/* free the list */
-    	list_for_each_entry_safe(ptr_RetrievedListitem, ptr_temp, &portList, list) {
-    		list_del(&(ptr_RetrievedListitem->list));
 
-		printk(KERN_INFO "Freeing list item containing port %i\n", ptr_RetrievedListitem->remotePort);
-    		kfree(ptr_RetrievedListitem);
-    	}
 	printk (KERN_INFO "List freed\n" );
 
   	printk(KERN_INFO "Firewall extension: module unloaded\n");
