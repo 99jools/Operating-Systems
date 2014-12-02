@@ -15,7 +15,7 @@
 #include <asm/uaccess.h>
 #include <linux/list.h>
 #include <linux/namei.h>
-
+#include <linux/spinlock.h>
 
 
  
@@ -43,7 +43,7 @@ MODULE_LICENSE("GPL");
 
 	struct nf_hook_ops *reg;
 
-	DECLARE_RWSEM(list_sem); /* semaphore to protect list access */
+	spinlock_t my_lock = SPIN_LOCK_UNLOCKED;
 
 	static struct proc_dir_entry *Our_Proc_File;
 
@@ -134,32 +134,29 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 /********************************************************************************/
 /* add_entry - adds line from user space to the list kept in kernel space		*/
 /********************************************************************************/
-int add_entry (int portNo) {
+int add_entry (int portNo, struct list_head* ptr_NewList) {
 
-	printk (KERN_INFO "I a\n" );
+	printk (KERN_INFO "I am in add_entry\n" );
+
+	//get space for new list entry 
+	ptr_NewListitem = (struct struct_Listitem*) kmalloc (sizeof (struct struct_Listitem), GFP_KERNEL);	
+	if (!ptr_NewListitem) {
+		return -ENOMEM; // can't add list item
+	}
+
+	// set up list item data
+	memset(ptr_NewListitem,0,sizeof(*ptr_NewListitem));
+	ptr_NewListitem->remotePort = portNo;
+	INIT_LIST_HEAD(&ptr_NewListitem->list);  
+
+	/* NOW WE ARE GOING TO ADD IT TO THE LIST */
+
+	// add to tail of list and modify tail pointer
+	list_add_tail(&ptr_NewListitem->list, ptr_NewList);
 
 	return 0;
 } //end add_entry
 
-
-/********************************************************************************/
-/* clear_list - deletes all elements from current list and frees memory			*/
-/********************************************************************************/
-void clear_list (void) {
-	
-	struct struct_Listitem* ptr_RetrievedListitem;
-	struct struct_Listitem* ptr_temp;
-
-	//need to traverse the list and free the space as I go	
-    	list_for_each_entry_safe(ptr_RetrievedListitem, ptr_temp, &portList, list) {
-    		list_del(&(ptr_RetrievedListitem->list));
-
-		printk(KERN_INFO "Freeing list item containing port %i\n", ptr_RetrievedListitem->remotePort);
-    		kfree(ptr_RetrievedListitem);
-    	}
-	printk (KERN_INFO "List freed\n" );
-
-} //end clear_list
 
 /********************************************************************************/
 /* kernelRead - reads the monitoring data and writes it to the proc file		*/
@@ -240,9 +237,11 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 			return -EINVAL;
 		}
 
-		// add this port to the listlear
-		add_entry(portNo);
-
+		// add this port to the list
+		if (!add_entry(portNo, &newList) ){
+			kfree(ptr_KernelBuffer);
+			return -EINVAL;  // we were not able to add the list item
+		}
 		// increment the count
 		items++;
 
@@ -255,10 +254,10 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 
 /********************* if we are here, we have created a list of port monitoring structures
 	 - now it is time to make this the active list for monitoring */
-
 	
-
-
+	void spin_lock(spinlock_t *lock);
+	portList = newList;
+	void spin_unlock(spinlock_t *lock);
 
 	/* all done - free the buffer and return bytes written */
 	kfree (ptr_KernelBuffer);
@@ -346,6 +345,9 @@ int init_module(void) {
 /********************************************************************************/
 void cleanup_module(void) {
 
+	struct struct_Listitem* ptr_RetrievedListitem;
+	struct struct_Listitem* ptr_temp;
+
 	nf_unregister_hook (&firewallExtension_ops); /* restore everything to normal */
   	printk(KERN_INFO "filewall extension: hook unregistered.\n");
 
@@ -353,7 +355,13 @@ void cleanup_module(void) {
   	printk(KERN_INFO "/proc/%s removed\n", PROC_ENTRY_FILENAME);  
 
   	/* free the list */
-	clear_list();
+    	list_for_each_entry_safe(ptr_RetrievedListitem, ptr_temp, &portList, list) {
+    		list_del(&(ptr_RetrievedListitem->list));
+
+		printk(KERN_INFO "Freeing list item containing port %i\n", ptr_RetrievedListitem->remotePort);
+    		kfree(ptr_RetrievedListitem);
+    	}
+	printk (KERN_INFO "List freed\n" );
 
   	printk(KERN_INFO "Firewall extension: module unloaded\n");
 
