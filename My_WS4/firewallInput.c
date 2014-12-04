@@ -175,7 +175,7 @@ void clear_list (struct list_head* ptr_OldList) {
 } //end clear_list
 
 /********************************************************************************/
-/* kernelRead - reads the monitoring data and writes it to the proc file		*/
+/* kernelRead - reads the monitoring data and writes it to the proc file	*/
 /********************************************************************************/
 ssize_t kernelRead (struct file *fp,
 		 char __user *buffer,  /* the destination buffer */
@@ -243,25 +243,27 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 
 	// set pointer to start of buffer
 	ptr_NextTok = ptr_KernelBuffer;
+   printk (KERN_INFO "before validating input\n");
+
 
 	/* validate the input data and add to list of port monitoring items*/
 	while (ptr_NextTok != NULL) {  
 
 		if ( ( strlen(ptr_NextTok) < 1) || (64==items) )  {
 			kfree(ptr_KernelBuffer);
-			return -EINVAL;  // zero length token or too many ports specified
+			return -99;  // zero length token or too many ports specified
 		} 
 
 		// convert token to integer
  		if (!kstrtouint(ptr_NextTok, 10, &portNo) ){
 			kfree(ptr_KernelBuffer);
-			return -EINVAL;
+			return -89;
 		}
 
 		// add this port to the list
 		if (!add_entry(portNo, &newList) ){
 			kfree(ptr_KernelBuffer);
-			return -EINVAL;  // we were not able to add the list item
+			return -79;  // we were not able to add the list item
 		}
 		// increment the count
 		items++;
@@ -275,7 +277,7 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 
 /* ******************** if we are here, we have created a list of port monitoring structures
 	 - now it is time to make this the active list for monitoring */
-	
+   printk (KERN_INFO "before lock\n");	
 //	spin_lock(&my_lock);
 	ptr_OldList = ptr_PortList;
 	ptr_PortList = ptr_NewList;
