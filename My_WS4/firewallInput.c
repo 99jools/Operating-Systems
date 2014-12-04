@@ -45,6 +45,8 @@ MODULE_LICENSE("GPL");
 
 	static struct proc_dir_entry *Our_Proc_File;
 
+	spinlock_t portList_lock;	
+
 	struct struct_Listitem {
 		struct list_head list;
 		int remotePort;
@@ -56,7 +58,7 @@ MODULE_LICENSE("GPL");
 
 	struct list_head* ptr_PortList; //this ptr points to the currently active port list
 
-	spinlock_t my_lock = SPIN_LOCK_UNLOCKED;
+	LIST_HEAD(dummyList); // creates and initialises dummy port list
 
 
 /********************************************************************************/
@@ -134,12 +136,13 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 /********************************************************************************/
 int add_entry (int portNo, struct list_head* ptr_NewList) {
 
+	struct struct_Listitem* ptr_NewListitem; 
 	printk (KERN_INFO "I am in add_entry\n" );
 
-	//get space for new list entry 
+	//get space for new list item  
 	ptr_NewListitem = (struct struct_Listitem*) kmalloc (sizeof (struct struct_Listitem), GFP_KERNEL);	
 	if (!ptr_NewListitem) {
-		return -ENOMEM; // can't add list item
+		return 1; // can't add list item
 	}
 
 	// set up list item data
@@ -147,16 +150,16 @@ int add_entry (int portNo, struct list_head* ptr_NewList) {
 	ptr_NewListitem->remotePort = portNo;
 	INIT_LIST_HEAD(&ptr_NewListitem->list);  
 
-	/* NOW WE ARE GOING TO ADD IT TO THE LIST */
-
 	// add to tail of list and modify tail pointer
 	list_add_tail(&ptr_NewListitem->list, ptr_NewList);
-
+	printk (KERN_INFO "I returning from add_entry\n" );
 	return 0;
 } //end add_entry
 
 /********************************************************************************/
-/* clear_list - deletes all elements from current list and frees memory			*/
+/* clear_list - deletes all elements from a list and frees memory				*/	
+/*				no need to lock as list has already been disconnected when this */
+/*				function is called											    */
 /********************************************************************************/
 void clear_list (struct list_head* ptr_OldList) {
 	
@@ -165,12 +168,11 @@ void clear_list (struct list_head* ptr_OldList) {
 
 	//need to traverse the list and free the space as I go	
 	list_for_each_entry_safe(ptr_RetrievedListitem, ptr_temp, ptr_OldList, list) {
+		printk(KERN_INFO "Freeing list item containing port %i\n", ptr_RetrievedListitem->remotePort);
 		list_del(&(ptr_RetrievedListitem->list));
-
-	printk(KERN_INFO "Freeing list item containing port %i\n", ptr_RetrievedListitem->remotePort);
 		kfree(ptr_RetrievedListitem);
 	}
-	printk (KERN_INFO "List freed\n" );
+	printk(KERN_INFO  "List freed\n" );
 
 } //end clear_list
 
@@ -182,17 +184,18 @@ ssize_t kernelRead (struct file *fp,
 		 size_t buffer_size,  /* size of buffer */
 		 loff_t *offset  /* offset in destination buffer */
 	        ) {
-  int retval = 0;  /* number of bytes read; return value for function */
+
+	ssize_t retval = 0;  /* number of bytes read; return value for function */
+	struct struct_Listitem* ptr_RetrievedListitem;
+	
+	//read list
+	list_for_each_entry(ptr_RetrievedListitem, ptr_PortList, list) {
+		printk(KERN_INFO "reading list item containing port %i\n", ptr_RetrievedListitem->remotePort);
+
+	}
 
 
-
-
-
-
-
-
-
-  printk (KERN_INFO "procfile read returned %d byte\n", retval);
+  printk (KERN_INFO "procfile read returned %zx byte\n", retval);
   return retval;
 }
 
@@ -203,13 +206,15 @@ ssize_t kernelRead (struct file *fp,
 ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, size_t count, loff_t *ppoffset) {
 
   	char* ptr_KernelBuffer; /* the kernel buffer */
-	int items = 0;
-	const char str_delim[2] = ",";
 	char* ptr_NextTok;
+	char* ptr_ThisTok;
+
+	int items = 0;
+	const char* str_delim = ",";
+
 	int portNo;
 	struct list_head* ptr_NewList;
 	struct list_head* ptr_OldList;
-
 	
 	/* check length of input buffer to avoid tying up kernel trying to allocate excessive amounts of memory */
 	if ( (count < 1) || (count > BUFFERLENGTH ) ) {
@@ -241,48 +246,55 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 	} 
 	INIT_LIST_HEAD(ptr_NewList); //initialise list_head pointers
 
-	// set pointer to start of buffer
+	// initialise pointer to start of buffer
 	ptr_NextTok = ptr_KernelBuffer;
 
 	/* validate the input data and add to list of port monitoring items*/
-	while (ptr_NextTok != NULL) {  
 
-		if ( ( strlen(ptr_NextTok) < 1) || (64==items) )  {
+
+	while (ptr_NextTok != NULL) {  
+  
+		//get token
+		ptr_ThisTok = strsep(&ptr_NextTok, str_delim); 
+
+		printk(KERN_INFO "token is %s\n", ptr_ThisTok);
+
+		// check token exists and we haven't exceed 64 items
+		if ( ( strlen(ptr_ThisTok) < 1) || (64==items) )  {
 			kfree(ptr_KernelBuffer);
-			return -EINVAL;  // zero length token or too many ports specified
+			return -99;  
 		} 
 
 		// convert token to integer
- 		if (!kstrtouint(ptr_NextTok, 10, &portNo) ){
+ 		if (kstrtouint(ptr_ThisTok, 10, &portNo) ){  
 			kfree(ptr_KernelBuffer);
-			return -EINVAL;
+			return -89;
 		}
 
 		// add this port to the list
-		if (!add_entry(portNo, &newList) ){
+		if (add_entry(portNo, ptr_NewList) ){
 			kfree(ptr_KernelBuffer);
-			return -EINVAL;  // we were not able to add the list item
+			return -79;  // we were not able to add the list item
 		}
 		// increment the count
 		items++;
 
-		//get next token
-		ptr_NextTok = strsep(&ptr_NextTok, str_delim); 
 
 	} //end while
 
+    printk (KERN_INFO "before lock\n");
 
-
-/* ******************** if we are here, we have created a list of port monitoring structures
-	 - now it is time to make this the active list for monitoring */
+	/*  make this the active list for monitoring */
 	
-//	spin_lock(&my_lock);
+//	spin_lock(&portLIst_lock);
 	ptr_OldList = ptr_PortList;
 	ptr_PortList = ptr_NewList;
-//	spin_unlock(&my_lock);
+//	spin_unlock(&portList_lock);
 
 	// clear the old list
-	clear_list();
+	if (ptr_OldList != NULL){
+		clear_list(ptr_OldList);
+	}
 
 	/* all done - free the buffer and return bytes written */
 	kfree (ptr_KernelBuffer);
@@ -296,7 +308,7 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 /********************************************************************************/
 int procfs_open(struct inode *inode, struct file *file)
 {
-    printk (KERN_INFO "kernelReadWrite opened\n");
+//    printk (KERN_INFO "iptraffic opened\n");
 	try_module_get(THIS_MODULE);
 	return 0;
 } //end procfs_open
@@ -307,7 +319,7 @@ int procfs_open(struct inode *inode, struct file *file)
 /********************************************************************************/
 int procfs_close(struct inode *inode, struct file *file)
 {
-    printk (KERN_INFO "kerneReadWrite closed\n");
+//    printk (KERN_INFO "iptraffic closed\n");
     module_put(THIS_MODULE);
     return 0;		/* success */
 } //end procfs_close
@@ -356,11 +368,19 @@ int init_module(void) {
 	//register hook
 	errno = nf_register_hook (&firewallExtension_ops); 
 	if (errno) {
-    	printk (KERN_INFO "Firewall extension could not be registered!\n");
+    	printk (KERN_INFO "Firewall input could not be registered!\n");
 		return errno;
   	}
 
-	printk(KERN_INFO "Firewall extensions module loaded\n");
+
+	// set pointer to the empty list
+	ptr_PortList = &dummyList;
+	
+
+	// initialise spin lock
+//	portList_lock = SPIN_LOCK_UNLOCKED;
+
+	printk(KERN_INFO "Firewall input module loaded\n");
     return 0;	/* success - a non 0 return means init_module failed; module can't be loaded. */
 } //end init_module
 
@@ -371,16 +391,15 @@ int init_module(void) {
 void cleanup_module(void) {
 
 	nf_unregister_hook (&firewallExtension_ops); /* restore everything to normal */
-  	printk(KERN_INFO "filewall extension: hook unregistered.\n");
+  	printk(KERN_INFO "filewall input: hook unregistered.\n");
 
 	remove_proc_entry (PROC_ENTRY_FILENAME, NULL);  /* now, no further module calls possible */
   	printk(KERN_INFO "/proc/%s removed\n", PROC_ENTRY_FILENAME);  
 
   	/* free the list */
+	clear_list(ptr_PortList);
 
-	printk (KERN_INFO "List freed\n" );
-
-  	printk(KERN_INFO "Firewall extension: module unloaded\n");
+  	printk(KERN_INFO "Firewall input: module unloaded\n");
 
 } //end cleanup_module 
 
