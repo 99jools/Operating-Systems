@@ -24,8 +24,10 @@ MODULE_AUTHOR ("Julie Sewards <jrs300@student.bham.ac.uk>");
 MODULE_DESCRIPTION ("FIrewall Input module") ;
 MODULE_LICENSE("GPL");
 
-#define BUFFERLENGTH 512
+#define WRITEBUFFERLENGTH 512
+#define READBUFFERLENGTH 65537
 
+#define TRUE 1
 #define PROC_ENTRY_FILENAME "iptraffic"
 
 /* make IP4-addresses readable */
@@ -51,7 +53,7 @@ MODULE_LICENSE("GPL");
 		struct list_head list;
 		int remotePort;
 		int nextIndex;
-		int remoteAddr[32];
+		unsigned remoteAddr[32];
 		int localPort[32];
 		int full;
 	}; /* structure for a single item in rules list */
@@ -62,22 +64,40 @@ MODULE_LICENSE("GPL");
 
 
 /********************************************************************************/
+/* 	monitor																			*/
+/********************************************************************************/
+void monitor(int remote, unsigned remoteip, int local){
+
+	struct struct_Listitem* ptr_RetrievedListitem;
+	printk (KERN_INFO "firewall: Am in monitor \n");
+	//lock list
+
+	//traverse list to see if port is being monitored
+	list_for_each_entry(ptr_RetrievedListitem, ptr_PortList, list) {
+		
+		if (remote == ptr_RetrievedListitem->remotePort){
+			
+			//record packet information in array
+			ptr_RetrievedListitem->localPort[ptr_RetrievedListitem->nextIndex]  = local;
+			ptr_RetrievedListitem->remoteAddr[ptr_RetrievedListitem->nextIndex] = remoteip;
+
+			//increment next free index 
+			if (32 == ptr_RetrievedListitem->nextIndex){
+				ptr_RetrievedListitem->nextIndex = 0;
+				ptr_RetrievedListitem->full = TRUE;		
+			} 
+		}
+
+	} //end traverse list
+
+	//unlock list
+	return;
+} //end monitor
+/********************************************************************************/
 /* 																				*/
 /********************************************************************************/
- 
 
 
-
-
-/********************************************************************************/
-/* 																				*/
-/********************************************************************************/
-
-
-
-/********************************************************************************/
-/*                      							*/
-/********************************************************************************/
 
 
 /********************************************************************************/
@@ -90,37 +110,36 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 				    const struct net_device *out,
 				    int (*okfn)(struct sk_buff *)) {
 
-    struct tcphdr *tcp;
-    struct tcphdr _tcph;
-    struct iphdr *ip;
+	struct tcphdr *tcp;
+	struct tcphdr _tcph;
+	struct iphdr *ip;
 
-    ip = ip_hdr (skb);
+
+ip = ip_hdr (skb);
     if (!ip) {
-	printk (KERN_INFO "firewall: Cannot get IP header!\n!");
+		printk (KERN_INFO "firewall: Cannot get IP header!\n!");
     }
     
     //    printk (KERN_INFO "The protocol received is %d\n", ip->protocol);
     if (ip->protocol == IPPROTO_TCP) { 
-	//	printk (KERN_INFO "TCP-packet received\n");
+		//printk (KERN_INFO "TCP-packet received\n");
 
-    /* get the tcp-header for the packet */
-	tcp = skb_header_pointer(skb, ip_hdrlen(skb), sizeof(struct tcphdr), &_tcph);
-	if (!tcp) {
-	    printk (KERN_INFO "Could not get tcp-header!\n");
-	    return NF_ACCEPT;
-       }
+    	/* get the tcp-header for the packet */
+		tcp = skb_header_pointer(skb, ip_hdrlen(skb), sizeof(struct tcphdr), &_tcph);
+		if (!tcp) {
+	    	printk (KERN_INFO "Could not get tcp-header!\n");
+	    	return NF_ACCEPT;
+       	}
 
-       if (tcp->syn && tcp->ack) {
+		if (tcp->syn && tcp->ack) {
 	
-	   printk (KERN_INFO "firewall: Received SYN-ACK-packet \n");
-	   printk (KERN_INFO "firewall: Source address = %u.%u.%u.%u\n", NIPQUAD(ip->saddr));
-	   printk (KERN_INFO "firewall: destination port = %d\n", htons(tcp->dest)); 
-	   printk (KERN_INFO "firewall: source port = %d\n", htons(tcp->source)); 
-		
-	   if (htons (tcp->source) == 80) {
-	       return NF_DROP;
-	   }
-       }
+		   	printk (KERN_INFO "firewall: Received SYN-ACK-packet \n");
+		   	printk (KERN_INFO "firewall: Source address = %u.%u.%u.%u\n", NIPQUAD(ip->saddr));
+		   	printk (KERN_INFO "firewall: destination port = %d\n", htons(tcp->dest)); 
+		   	printk (KERN_INFO "firewall: source port = %d\n", htons(tcp->source)); 
+
+			monitor(ip->saddr, htons(tcp->dest), htons(tcp->source));
+		}
     }
     return NF_ACCEPT;	
 
@@ -137,7 +156,6 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 int add_entry (int portNo, struct list_head* ptr_NewList) {
 
 	struct struct_Listitem* ptr_NewListitem; 
-	printk (KERN_INFO "I am in add_entry\n" );
 
 	//get space for new list item  
 	ptr_NewListitem = (struct struct_Listitem*) kmalloc (sizeof (struct struct_Listitem), GFP_KERNEL);	
@@ -152,7 +170,6 @@ int add_entry (int portNo, struct list_head* ptr_NewList) {
 
 	// add to tail of list and modify tail pointer
 	list_add_tail(&ptr_NewListitem->list, ptr_NewList);
-	printk (KERN_INFO "I returning from add_entry\n" );
 	return 0;
 } //end add_entry
 
@@ -172,31 +189,81 @@ void clear_list (struct list_head* ptr_OldList) {
 		list_del(&(ptr_RetrievedListitem->list));
 		kfree(ptr_RetrievedListitem);
 	}
-	printk(KERN_INFO  "List freed\n" );
+
 
 } //end clear_list
+
+
+/********************************************************************************/
+/* copy_to_buffer                     											*/
+/********************************************************************************/
+int copy_to_buffer(char* ptr_temp, int buffer_len){
+
+	struct struct_Listitem* ptr_RetrievedListitem;
+	int size_Listitem;
+	int copied = 0;
+
+	size_Listitem = sizeof(struct struct_Listitem);
+
+	list_for_each_entry(ptr_RetrievedListitem, ptr_PortList, list) {
+		printk(KERN_INFO "reading list item containing port %i\n", ptr_RetrievedListitem->remotePort);
+
+		//check whether there is enough space
+		if ((buffer_len - copied) < size_Listitem) {
+			printk(KERN_INFO "buffer full - returning partial data \n");
+			return copied;  //not able to fit all of the data into the buffer	
+		}
+
+		printk(KERN_INFO "ptr_retrieved = %p, ptr_temp = %p \n", ptr_RetrievedListitem, ptr_temp);
+
+		// copy data into buffer and advanced pointer
+		memcpy( ptr_temp,ptr_RetrievedListitem, size_Listitem);
+		ptr_temp = ptr_temp + size_Listitem;	
+		copied = copied + size_Listitem;
+		
+	}
+	return copied;  //complete data written to buffer
+}
 
 /********************************************************************************/
 /* kernelRead - reads the monitoring data and writes it to the proc file		*/
 /********************************************************************************/
-ssize_t kernelRead (struct file *fp,
-		 char __user *buffer,  /* the destination buffer */
+ssize_t kernelRead (struct file *fp, char __user *buffer,  /* the destination buffer */
 		 size_t buffer_size,  /* size of buffer */
-		 loff_t *offset  /* offset in destination buffer */
-	        ) {
+		 loff_t *offset ) {
 
-	ssize_t retval = 0;  /* number of bytes read; return value for function */
-	struct struct_Listitem* ptr_RetrievedListitem;
-	
-	//read list
-	list_for_each_entry(ptr_RetrievedListitem, ptr_PortList, list) {
-		printk(KERN_INFO "reading list item containing port %i\n", ptr_RetrievedListitem->remotePort);
+	ssize_t bytes_read;  /* number of bytes read; return value for function */
+	char* ptr_KernelReadBuffer; 
 
+	/* check length of input buffer to avoid tying up kernel trying to allocate excessive amounts of memory */
+	if ( (buffer_size < 1) || (buffer_size > READBUFFERLENGTH ) ) {
+		return -EINVAL;		
 	}
 
+	/* get space to copy the port from the user (remembering to handle any kmalloc error) */
+	ptr_KernelReadBuffer = kmalloc (buffer_size, GFP_KERNEL); 
+	if (!ptr_KernelReadBuffer) {
+		return -ENOMEM;
+	} 
 
-  printk (KERN_INFO "procfile read returned %zx byte\n", retval);
-  return retval;
+	
+	//lock the list
+	
+	//copy list contents to buffer
+	bytes_read = copy_to_buffer(ptr_KernelReadBuffer, buffer_size);
+	
+
+	//unlock the list
+
+	/* copy to user buffer and check return code */
+	if (copy_to_user (buffer, ptr_KernelReadBuffer, bytes_read) != 0) { 
+		kfree(ptr_KernelReadBuffer);
+    	return -EFAULT;
+  	}
+
+
+	kfree(ptr_KernelReadBuffer);
+  	return bytes_read;
 }
 
 /********************************************************************************/
@@ -217,7 +284,7 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 	struct list_head* ptr_OldList;
 	
 	/* check length of input buffer to avoid tying up kernel trying to allocate excessive amounts of memory */
-	if ( (count < 1) || (count > BUFFERLENGTH ) ) {
+	if ( (count < 1) || (count > WRITEBUFFERLENGTH ) ) {
 		return -EINVAL;		
 	}
 
@@ -256,8 +323,6 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
   
 		//get token
 		ptr_ThisTok = strsep(&ptr_NextTok, str_delim); 
-
-		printk(KERN_INFO "token is %s\n", ptr_ThisTok);
 
 		// check token exists and we haven't exceed 64 items
 		if ( ( strlen(ptr_ThisTok) < 1) || (64==items) )  {
@@ -335,7 +400,7 @@ static struct nf_hook_ops firewallExtension_ops = {
 	.owner   = THIS_MODULE,
 	.pf      = PF_INET,
 	.priority = NF_IP_PRI_FIRST,
-	.hooknum = NF_INET_LOCAL_OUT
+	.hooknum = NF_INET_LOCAL_IN
 };
 
 const struct file_operations File_Ops_4_Our_Proc_File = {
