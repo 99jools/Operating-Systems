@@ -47,14 +47,15 @@ MODULE_LICENSE("GPL");
 
 	static struct proc_dir_entry *Our_Proc_File;
 
-	spinlock_t portList_lock;	
+	spinlock_t   portList_lock;	
+	unsigned long flags;
 
 	struct struct_Listitem {
 		struct list_head list;
-		int remotePort;
+		unsigned remotePort;
 		int nextIndex;
 		unsigned remoteAddr[32];
-		int localPort[32];
+		unsigned localPort[32];
 		int full;
 	}; /* structure for a single item in rules list */
 
@@ -66,11 +67,12 @@ MODULE_LICENSE("GPL");
 /********************************************************************************/
 /* 	monitor																			*/
 /********************************************************************************/
-void monitor(int remote, unsigned remoteip, int local){
+void monitor(unsigned remoteip, unsigned remote, unsigned local){
 
 	struct struct_Listitem* ptr_RetrievedListitem;
-	printk (KERN_INFO "firewall: Am in monitor \n");
+
 	//lock list
+	spin_lock_irqsave(&portList_lock ,flags);
 
 	//traverse list to see if port is being monitored
 	list_for_each_entry(ptr_RetrievedListitem, ptr_PortList, list) {
@@ -78,21 +80,29 @@ void monitor(int remote, unsigned remoteip, int local){
 		if (remote == ptr_RetrievedListitem->remotePort){
 			
 			//record packet information in array
+			printk(KERN_INFO "monitor: am recording packet in index = %i \n",ptr_RetrievedListitem->nextIndex);	
 			ptr_RetrievedListitem->localPort[ptr_RetrievedListitem->nextIndex]  = local;
 			ptr_RetrievedListitem->remoteAddr[ptr_RetrievedListitem->nextIndex] = remoteip;
 
 			//increment next free index 
+			ptr_RetrievedListitem->nextIndex++;
+			printk(KERN_INFO "monitor: nextIndex = %i \n",ptr_RetrievedListitem->nextIndex);
+		
 			if (32 == ptr_RetrievedListitem->nextIndex){
+				printk(KERN_INFO "am in the 32 case\n");
 				ptr_RetrievedListitem->nextIndex = 0;
 				ptr_RetrievedListitem->full = TRUE;		
 			} 
+
 		}
 
 	} //end traverse list
 
 	//unlock list
+	spin_unlock_irqrestore(&portList_lock ,flags);
 	return;
 } //end monitor
+
 /********************************************************************************/
 /* 																				*/
 /********************************************************************************/
@@ -113,7 +123,7 @@ unsigned int FirewallExtensionHook (const struct nf_hook_ops *ops,
 	struct tcphdr *tcp;
 	struct tcphdr _tcph;
 	struct iphdr *ip;
-
+	struct struct_Listitem* ptr_RetrievedListitem;
 
 ip = ip_hdr (skb);
     if (!ip) {
@@ -132,13 +142,21 @@ ip = ip_hdr (skb);
        	}
 
 		if (tcp->syn && tcp->ack) {
-	
-		   	printk (KERN_INFO "firewall: Received SYN-ACK-packet \n");
-		   	printk (KERN_INFO "firewall: Source address = %u.%u.%u.%u\n", NIPQUAD(ip->saddr));
-		   	printk (KERN_INFO "firewall: destination port = %d\n", htons(tcp->dest)); 
+		   	printk (KERN_INFO "firewall: Received SYN-ACK-packet   ");
+		   	printk (KERN_INFO "firewall: Source address = %u.%u.%u.%u", NIPQUAD(ip->saddr));
+		   	printk (KERN_INFO "firewall: destination port = %d   ", htons(tcp->dest)); 
 		   	printk (KERN_INFO "firewall: source port = %d\n", htons(tcp->source)); 
 
-			monitor(ip->saddr, htons(tcp->dest), htons(tcp->source));
+/*			//traverse list to see if port is being monitored
+			list_for_each_entry(ptr_RetrievedListitem, ptr_PortList, list) {
+
+//printk(KERN_INFO "traversing list - port from listitem %u, syn ack packet port = %u\n", ptr_RetrievedListitem->remotePort, htons(tcp->source));
+		
+				if (htons(tcp->source) == ptr_RetrievedListitem->remotePort){ */
+					monitor(ip->saddr, htons(tcp->source), htons(tcp->dest));
+		
+
+			} //end check list
 		}
     }
     return NF_ACCEPT;	
@@ -199,22 +217,61 @@ void clear_list (struct list_head* ptr_OldList) {
 /********************************************************************************/
 int copy_to_buffer(char* ptr_temp, int buffer_len){
 
-	struct struct_Listitem* ptr_RetrievedListitem;
-	int size_Listitem;
-	int copied = 0;
+	struct struct_OutputLine{
+		unsigned rp;
+		char colon = ":";
+		unsigned ra;
+		char colon2 = ":";
+		unsigned lp;
+		char nl= "\n";
+	};
 
-	size_Listitem = sizeof(struct struct_Listitem);
+	struct struct_Listitem* ptr_RetrievedListitem;
+
+	int size_line;
+	int copied = 0;
+	int i;
+	int toprint;
+
+	size_line = sizeof(struct struct_OutputLine);
 
 	list_for_each_entry(ptr_RetrievedListitem, ptr_PortList, list) {
 		printk(KERN_INFO "reading list item containing port %i\n", ptr_RetrievedListitem->remotePort);
 
+		//decide how many items we are going to print from the array
+		if (TRUE==ptr_RetrievedListitem->full){
+			printk(KERN_INFO "am in full case \n");
+			toprint = 32;
+		} else {
+			printk(KERN_INFO "am in partial case \n");
+			toprint = ptr_RetrievedListitem->nextIndex;
+		}
+
+		//write output lines to buffer
+		for (i=0; i<toprint; i++){
+			printk(KERN_INFO "%i:%u.%u.%u.%u:%i\n", ptr_temp-> remotePort, NIPQUAD(ptr_temp-> remoteAddr[1]), ptr_temp-> localPort[1]);
+		}
+
+
 		//check whether there is enough space
-		if ((buffer_len - copied) < size_Listitem) {
+		if ((buffer_len - copied) < size_line) {
 			printk(KERN_INFO "buffer full - returning partial data \n");
 			return copied;  //not able to fit all of the data into the buffer	
 		}
 
-		printk(KERN_INFO "ptr_retrieved = %p, ptr_temp = %p \n", ptr_RetrievedListitem, ptr_temp);
+		
+		} else {
+					printk(KERN_INFO "am in not full case, nextIndex = %i \n",ptr_RetrievedListitem->nextIndex);
+			//just print full items
+			i=0;
+			while (i<ptr_RetrievedListitem->nextIndex){
+				printk(KERN_INFO "ptr_RetrievedListitem->remoteAddr= %u, ptr_RetrievedListitem->localPort= %i\n",ptr_RetrievedListitem->remoteAddr[i],ptr_RetrievedListitem->localPort[i]);
+				i++;
+			}
+
+
+		}
+
 
 		// copy data into buffer and advanced pointer
 		memcpy( ptr_temp,ptr_RetrievedListitem, size_Listitem);
@@ -248,12 +305,14 @@ ssize_t kernelRead (struct file *fp, char __user *buffer,  /* the destination bu
 
 	
 	//lock the list
+	spin_lock_irqsave(&portList_lock ,flags);
 	
 	//copy list contents to buffer
 	bytes_read = copy_to_buffer(ptr_KernelReadBuffer, buffer_size);
 	
 
 	//unlock the list
+	spin_unlock_irqrestore(&portList_lock ,flags);
 
 	/* copy to user buffer and check return code */
 	if (copy_to_user (buffer, ptr_KernelReadBuffer, bytes_read) != 0) { 
@@ -351,10 +410,15 @@ ssize_t kernelWrite (struct file* ptr_file, const char __user* ptr_userbuffer, s
 
 	/*  make this the active list for monitoring */
 	
-//	spin_lock(&portLIst_lock);
+	//lock list
+	spin_lock_irqsave(&portList_lock ,flags);
+
+	//switch the pointers
 	ptr_OldList = ptr_PortList;
 	ptr_PortList = ptr_NewList;
-//	spin_unlock(&portList_lock);
+
+	//unlock list
+	spin_unlock_irqrestore(&portList_lock ,flags);
 
 	// clear the old list
 	if (ptr_OldList != NULL){
@@ -443,7 +507,7 @@ int init_module(void) {
 	
 
 	// initialise spin lock
-//	portList_lock = SPIN_LOCK_UNLOCKED;
+	spin_lock_init(&portList_lock);
 
 	printk(KERN_INFO "Firewall input module loaded\n");
     return 0;	/* success - a non 0 return means init_module failed; module can't be loaded. */
@@ -461,7 +525,7 @@ void cleanup_module(void) {
 	remove_proc_entry (PROC_ENTRY_FILENAME, NULL);  /* now, no further module calls possible */
   	printk(KERN_INFO "/proc/%s removed\n", PROC_ENTRY_FILENAME);  
 
-  	/* free the list */
+  	/* free the list - no need for lock as can only by one instance of rmmod*/
 	clear_list(ptr_PortList);
 
   	printk(KERN_INFO "Firewall input: module unloaded\n");
